@@ -1,0 +1,253 @@
+YOLO V3
+
+网络结构：(darknet-53)
+	输入：416 * 416 * 3
+	-------- layer1 --------
+	Conv: [3*3*32] strides=1 padding=1 active=leakReLU norm=BN out=[416 * 416 * 32]
+	Conv: [3*3*64] strides=2 padding=1 active=leakReLU norm=BN out=[208 * 208 * 64]
+	-------- layer2 --------
+	Conv: [1*1*32] strides=1 padding=0 active=leakReLU norm=BN out=[208 * 208 * 32]
+	Conv: [3*3*64] strides=1 padding=1 active=leakReLU norm=BN out=[208 * 208 * 64]
+	Residual: 
+	Conv: [3*3*128] strides=2 padding=1 active-leakReLU norm=BN out=[104 * 104 * 128]
+	-------- layer3 --------
+	Conv: [1*1*64] strides=1 padding=0 active=leakReLU norm=BN out=[104 * 104 * 64]
+	Conv: [3*3*128] strides=1 padding=1 active=leakReLU norm=BN out=[104 * 104 * 128]
+	Residual: 
+	times: 2
+	Conv: [3*3*256] strides=2 padding=1 active-leakReLU norm=BN out=[52 * 52 * 256]
+	-------- layer4 --------
+	Conv: [1*1*128] strides=1 padding=0 active=leakReLU norm=BN out=[52 * 52 * 128]
+	Conv: [3*3*256] strides=1 padding=1 active=leakReLU norm=BN out=[52 * 52 * 256]
+	Residual:
+	times: 8
+	branch1: out=[52 * 52 * 256]
+	Conv: [3*3*512] strides=2 padding=1 active-leakReLU norm=BN out=[26 * 26 * 512]
+	-------- layer5 --------
+	Conv: [1*1*256] strides=1 padding=0 active=leakReLU norm=BN out=[26 * 26 * 256]
+	Conv: [3*3*512] strides=1 padding=1 active=leakReLU norm=BN out=[26 * 26 * 512]
+	Residual:
+	times: 8
+	branch2: out=[26 * 26 * 512]
+	Conv: [3*3*1024] strides=2 padding=1 active-leakReLU norm=BN out=[13 * 13 * 1024]
+	-------- layer6 --------
+	Conv: [1*1*512] strides=1 padding=0 active=leakReLU norm=BN out=[13 * 13 * 512]
+	Conv: [3*3*1024] strides=1 padding=1 active=leakReLU norm=BN out=[13 * 13 * 1024]
+	Residual:
+	times: 4
+	Conv Block: 
+		Conv: [1*1*512] strides=1 padding=0 active=leakReLU norm=BN out=[13 * 13 * 512]
+		Conv: [3*3*1024] strides=1 padding=1 active=leakReLU norm=BN out=[13 * 13 * 1024]
+		times: 3
+		out=[13 * 13 * 1024]
+	branch3: out=[13 * 13 * 1024]
+	-------- layer7 --------
+	Scale1: 
+		branch3: out=[13 * 13 * 1024]
+		Conv: [1*1*255] strides=1 padding=0 active=leakReLU norm=BN out=[13 * 13 * 255]
+	Scale2:
+		Concat:
+			输入1: branch3: out=[13 * 13 * 1024]
+				  Conv: [1*1*256] strides=1 padding=0 active=leakReLU norm=BN out=[13 * 13 * 256]
+				  upsample: out=[26 * 26 * 256]
+			输入2: branch2: out=[26 * 26 * 512]
+			out = [26 * 26 * 768]
+		Conv Block: 
+			Conv: [1*1*256] strides=1 padding=0 active=leakReLU norm=BN out=[26 * 26 * 256]
+			Conv: [3*3*512] strides=1 padding=1 active=leakReLU norm=BN out=[26 * 26 * 512]
+			times: 3
+			out=[26 * 26 * 512]
+			branch4: out=[26 * 26 * 512]
+		Conv: [1*1*255] strides=1 padding=0 active=leakReLU norm=BN out=[26 * 26 * 266]
+	Scale3:
+		Concat:
+			输入1: branch1: out=[52 * 52 * 256]
+			输入2: branch4: out=[26 * 26 * 512]
+				  Conv: [1*1*128] strides=1 padding=0 active=leakReLU norm=BN out=[26 * 26 * 128]
+				  upsample: out=[52 * 52 * 128]
+			out = [52 * 52 * 384]
+		Conv Block:
+			Conv: [1*1*128] strides=1 padding=0 active=leakReLU norm=BN out=[52 * 52 * 128]
+			Conv: [3*3*256] strides=1 padding=1 active=leakReLU norm=BN out=[52 * 52 * 256]
+			times: 3
+			out=[52 * 52 * 256]
+		Conv: [1*1*255] strides=1 padding=0 active=leakReLU norm=BN out=[52 * 52 * 266]
+
+		
+upsample(上采样层):
+	貌似采用 reshape 或 deconv 操作。推荐使用deconv
+	tensorflow对deconv有提供API
+
+	
+route层：
+	取参数给定层的输出，多层之间在通道维度合并
+	例如：route 27 24（取L27层和L24层的输出，在通道维合并）
+		L27 out=[13 * 13 * 256]
+		L24 out=[13 * 13 * 1024]
+		route out=[13 * 13 * 1280]
+reorg层：
+	隔点采样层
+	参见：https://zhuanlan.zhihu.com/p/40659490 中关于reorganization层的描述
+
+
+k-means算法选出合适的anchor宽高比：
+	step1：对所有GT(x,y,w,h)，随机选取k个作为中心点
+			x：相对特征图的w坐标
+			y：相对特征图的h坐标
+			w：相对特征图的宽度
+			h：相对特征图的高度
+	step2：计算其他GT对当前中心点的距离，每个GT选取当前距离最小的中心点归类
+			距离公式 = 1 - IoU
+	step3：重新计算每个中心点的质心，作为每个归类新的中心点
+			质心公式 = [∑(i∈分类)(x) / 分类数, ∑(i∈分类)(y) / 分类数, ∑(i∈分类)(w) / 分类数, ∑(i∈分类)(h) / 分类数]
+	step4：重复step2 ~ step3，直到新老中心点的差别 < 阈值
+	step5：最终选取的k个中心点的宽高，即为每个cell中anchor的宽高
+			此时的宽高是相对特征图尺寸下，要求原图宽高还要 *缩放比例
+	
+k-means++算法选出合适的anchor宽高比：
+	step1：对所有GT(x,y,w,h)，随机选取1个作为中心点，计入集合C
+	step2：计算其他所有GT与当前集合C中所有中心点距离，并计算每个点被选为下个中心点的概率
+			距离公式 D(x) = 1 - IoU
+			选为下个中心点的概率公式 P(x) = D(x)² / ∑(i∈除当前中心点外剩下的GT) D(i)²
+			生成每个GT的概率区间表：[P(1), P(1) + P(2), P(1) + P(2) + P(3) ... 1]
+	step3：轮盘法随机选出下一个中心点
+			轮盘法 = 生成随机数
+					随机数落入step2的概率区间表的哪个区间，该区间表示的GT即为下个中心点
+	step4：重复step2 ~ step3，直到选出k个中心点
+	step5：用当前的k个中心点做k-means算法
+	
+	
+anchor说明：
+	每个anchor包含(4 + 1 + num_cls)维度：
+		[x/y偏移比，w/h缩放比，置信度得分，各个分类概率]
+		[tx,ty,tw,th, c, 从属于各个分类概率]
+	anchor与box换算公式：
+		center_x = cell[tx] + sigmoid(x)		cell[w]为相对特征图的x坐标
+		center_y = cell[ty] + sigmoid(y)		cell[y]为相对特征图的y坐标
+		w = exp(tw) * anchor[w]				anchor[w]为相对特征图的宽度
+		h = exp(th) * anchor[h]				anchor[h]为相对特征图的高度
+		c = sigmoid(c)						c = P(object) * IoU
+		p[i] = sigmoid(p[i])				p[i]为anchor从属第i个分类的概率。
+												注：不用Softmax是因为有可能1个物体从属与多个分类
+		
+
+损失函数：
+	loss = λ[box] * loss_box
+			+ λ[confidence] * loss_confidence
+			+ λ[unconfidence] * loss_unconfidence
+			+ λ[cls] * loss_cls
+	其中：
+		loss_box负责计算box的位置损失：
+			λ[box] = 1（配置文件决定）
+			loss_box = ∑(i∈cells) ∑(j∈anchors) U[i,j] * [(dx[i,j] - tx[i,j])² + (dy[i,j] - ty[i,j])² + (dw[i,j] - tw[i,j])² + (dh[i,j] - th[i,j])²]
+			U[i,j] = 1 当第i个cell的第j个anchor负责物体时
+					 0 当第i个cell的第j个anchor不负责物体时
+			dx[i,j] = 第i个cell的第j个anchor预测的dx（[0,1]之间，相对特征图）
+			dy[i,j] = 第i个cell的第j个anchor预测的dy（[0,1]之间，相对特征图）
+			dw[i,j] = 第i个cell的第j个anchor预测的dw（[0,1]之间，相对特征图）
+			dh[i,j] = 第i个cell的第j个anchor预测的dh（[0,1]之间，相对特征图）
+			tx[i,j] = 第i个cell中第j个anchor负责的物体，中心点相对cell左上点的x偏移量
+						tx = box[x] - cell[x]（[0,1]之间，相对特征图）
+			ty[i,j] = 第i个cell中第j个anchor负责的物体，中心点相对cell左上点的y偏移量
+						ty = box[y] - cell[y]（[0,1]之间，相对特征图）
+			tw[i,j] = 第i个cell中第j个anchor负责的物体，anchor宽度相对box宽度的缩放比
+						tw = log(box[w] / anchor[w])（[0,1]之间，相对特征图）
+			th[i,j] = 第i个cell中第j个anchor负责的物体，anchor宽度相对box高度的缩放比
+						th = log(box[h] / anchor[h])（[0,1]之间，相对特征图）
+		
+		loss_confidence负责计算负责预测anchor的置信度损失：
+			λ[confidence] = 1（配置文件决定）
+			loss_confidence = ∑(i∈cells) ∑(j∈anchors) U[i,j] * [c_[i,j] * -log(c[i,j])]
+			U[i,j] = 1 当第i个cell的第j个anchor负责物体时
+					 0 当第i个cell的第j个anchor不负责物体时
+			c_[i,j] = 第i个cell的第j个anchor负责物体的置信度
+						c_[i,j] = P(object) * IoU(anchor, box)
+								= 1 * IoU(anchor, box)		（当anchor负责物体时，P(object)为1）
+			c[i,j] = 第i个cell的第j个anchor预测负责物体的置信度
+		
+		loss_unconfidence负责计算不负责预测anchor的置信度损失：
+			λ[unconfidence] = 0.5（配置文件决定）
+			loss_unconfidence = ∑(i∈cells) ∑(j∈anchors) Un[i,j] * [(1 - c_[i,j]) * -log(1 - c[i,j])]
+			Un[i,j] = 1 当第i个cell的第j个anchor不负责物体时
+					  0 当第i个cell的第j个anchor负责物体时
+			c_[i,j] = 第i个cell的第j个anchor负责物体的置信度
+						c_[i,j] = P(object) * IoU(anchor, box)
+								= 1 * IoU(anchor, box)		（当anchor负责物体时，P(object)为1）
+			c[i,j] = 第i个cell的第j个anchor预测负责物体的置信度
+			注：该项实际是让anchor学习认识背景
+		
+		loss_cls负责计算负责预测anchor的分类损失：
+			λ[cls] = 1
+			loss_cls = ∑(i∈cells) ∑(j∈anchors) ∑(c∈类别集合) U[i,j] * [p_[i,j,c] * -log(p[i,j,c]) + (1 - p_[i,j,c]) * -log(1 - p[i,j,c])]
+			U[i,j] = 1 当第i个cell的第j个anchor负责物体时
+					 0 当第i个cell的第j个anchor不负责物体时
+			p_[i,j,c] = 第i个cell中第j个anchor负责物体的实际从属分类概率（one_hot）
+			p[i,j,c] = 第i个cell中第j个anchor预测物体属于第c类的概率
+			
+			
+训练过程：
+	数据准备：
+		1 按最终特征图比例将原图划分成H*W个区域（假定最终特征图是H*W的）
+		2 取N个样本（配置文件决定），利用k-means++（或k-means）算出B个anchors宽高比模板（原文中B = 9）
+		3 B按大小划分出3个类，分别对应网络的3中不同尺寸输出
+			Scale1：特征图较小，特征高度聚合，适合预测大物体。给长宽比较大的分类
+			Scale2：特征图适中，给长宽比适中的分类
+			Scale3：特征图较大，特征较细粒度，适合预测小物体。给长宽比较小的分类
+		3 判断标注框的中心点落入哪些cell
+			由此生成y_true：tensor(num, 2 + B*6)	（B按面积从小到大的顺序）
+							num：每张图片最多含有多少个物体（配置文件决定）
+								当图片中含有物体数不够时，用[-1, -1, -1, B*(-1, -1,-1,-1,-1)]填充，凑够数
+							2 + B*6：
+								[含有物体的cell的H,W轴索引（相对特征图），物体分类索引, B个anchor的(置信度，tx,ty,tw,th)]
+								[idxH, idxW, idxV, B*(c, tx, ty, tw, th)]
+								idxH = cell在特征图中的H轴索引
+								idxW = cell在特征图中的W轴索引
+								idxV = 中心点落在cell中的物体的分类索引
+								B个anchor信息：
+								c[b] = 第b个anchor的置信度。= 1 * 第b个anchor与实际物体的IoU 
+										c[b] = 1 * IoU(anchors[b], box)
+								tx[b] = 第b个anchor的tx
+										tx[b] = box[x] - cell[x]（相对特征图）
+								ty[b] = 第b个anchor的ty
+										ty[b] = box[y] - cell[y]（相对特征图）
+								tw[b] = 第b个anchor的tw
+										tw[b] = log(box[w] / anchor[w])
+								th[b] = 第b个anchor的th
+										th[b] = log(box[h] / anchor[h])
+								idxH、idxW、idxV = -1则表示该记录是填充记录，不参与loss计算
+							
+							
+	训练过程：
+		step1：原图reshape为统一大小（比如 N * M）
+		step2：过上述网络结构，拿到特征图：tensor(batch_size, H, W, B*(5+num_c))		num_c为分类数
+				b = 0 ~ B-1
+				(batch_size, h, w, 0+b*(5+num_c))：cell[h,w]的第b个anchor的confidence预测得分
+				(batch_size, h, w, 1+b*(5+num_c))：cell[h,w]的第b个anchor的预测dx
+				(batch_size, h, w, 2+b*(5+num_c))：cell[h,w]的第b个anchor的预测dy
+				(batch_size, h, w, 3+b*(5+num_c))：cell[h,w]的第b个anchor的预测dw
+				(batch_size, h, w, 4+b*(5+num_c))：cell[h,w]的第b个anchor的预测dh
+				(batch_size, h, w, c+b*(5+num_c))：cell[h,w]的第b个anchor的预测从属分类c的概率
+		step3：计算loss：
+			loss = λ[box] * loss_box
+					+ λ[confidence] * loss_confidence
+					+ λ[unconfidence] * loss_unconfidence
+					+ λ[cls] * loss_cls
+			y_true = y_true[:, :, 0] >= 0（过滤掉填充数据） 
+			Scale1：
+				取需要负责的anchors，和不负责物体检测的anchors
+					step1：y_true的idxH, idxW从fmaps中取对应数据：tensor(batch_size, num, B*(5+num_c)) （num数量不确定）
+					step2：在y_true中取前3个anchor的数据：tensor(batch_size, num, 3*6) （num数量不确定，但与上一个num相等）
+					step3：step2中3个anchor中c值最大的即为负责的anchor：tensor(batch_size, num, 6)
+					step4：step2中剩下的2个即为不负责的anchor：tensor(batch_size, num, 2*6)
+			Scale2：
+				取需要负责的anchors，和不负责物体检测的anchors
+				与Scale1的过程类似，不过step2取y_true的中间3个anchor
+			Scale3：
+				取需要负责的anchors，和不负责物体检测的anchors
+				与Scale1的过程类似，不过step2取y_true的最后3个anchor
+			数据取出来后带入上面的loss公式，相关数据应该都是全的
+				
+			
+			
+			
+				

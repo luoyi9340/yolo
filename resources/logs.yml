@@ -1,0 +1,76 @@
+#   日志相关配置
+#   cells数据集
+data_cells:
+   #   日志输出级别
+   level: INFO
+   #   日志输出目录（/开头表示机器绝对目录，非/开头表示项目根目录）
+   out: logs/data/cells.log
+   #   该log是否打印到控制台
+   console: true
+   #   log输出格式
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+   
+   
+#   训练相关日志
+train_v4:
+   level: INFO
+   out: logs/train_v4.log
+   console: true
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+
+
+#   loss相关日志
+losse_v4:
+   level: INFO
+   out: logs/losses/v4.log
+   console: true
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+losses_v4_box:
+   level: INFO
+   out: logs/losses/v4_box.log
+   console: true
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+losses_v4_confidence:
+   level: INFO
+   out: logs/losses/v4_confidence.log
+   console: true
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+losses_v4_unconfidence:
+   level: INFO
+   out: logs/losses/v4_unconfidence.log
+   console: true
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+losses_v4_classes:
+   level: INFO
+   out: logs/losses/v4_classes.log
+   console: true
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+   
+
+#   metrics相关日志
+metrics_v4:
+   level: INFO
+   out: logs/metrics/v4.log
+   console: true
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+metrics_v4_boxes:
+   level: INFO
+   out: logs/metrics/v4_boxes.log
+   console: true
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+metrics_v4_confidence:
+   level: INFO
+   out: logs/metrics/v4_confidence.log
+   console: true
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+metrics_v4_unconfidence:
+   level: INFO
+   out: logs/metrics/v4_unconfidence.log
+   console: true
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+metrics_v4_classes:
+   level: INFO
+   out: logs/metrics/v4_classes.log
+   console: true
+   formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+   

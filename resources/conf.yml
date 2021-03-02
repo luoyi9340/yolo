@@ -1,0 +1,71 @@
+#   手写字母识别（tensorflow2练手程序）
+dataset:
+   #   训练集相关配置
+   in_train: /Users/irenebritney/Desktop/vcode/dataset/num_letter/train
+   #   多文件模式中指定每个文件读取多少，单文件模式就是总数
+   count_train: 20000
+   # count_train: 19674   #   超过32proposal的图片数量
+   label_train: /Users/irenebritney/Desktop/vcode/dataset/num_letter/train.jsons
+   #   label是否多文件。会从train.jsons0, train.jsons1...开始往后读，直到某个idx读不到为止。所以idx一定要连续
+   label_train_mutiple: false
+   #   验证集相关配置
+   in_val: /Users/irenebritney/Desktop/vcode/dataset/num_letter/val
+   count_val: 100
+   label_val: /Users/irenebritney/Desktop/vcode/dataset/num_letter/val.jsons
+   label_val_mutiple: false
+   #   测试集相关配置
+   in_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test
+   count_test: 100
+   label_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test.jsons
+   label_test_mutiple: false
+   #   训练时批量大小
+   batch_size: 2
+   #   训练epochs
+   epochs: 2
+   #   打乱数据的buffer_size是batch_size的多少倍. < 0表示不做打乱
+   shuffle_buffer_rate: -1
+   
+
+#   cells数据源   
+dataset_cells:
+   #   anchor尺寸先验(h,w)，随机取M个样本，跑k-means算法取k个质心
+   anchors_set: [[[81.54752427957331, 56.43448495462505], [81.10758580905683, 59.1673877511779], [81.3733002779656, 59.538827536122994]], [[81.15771939123192, 63.73158173695768], [80.48762283866152, 64.94895716714359], [81.273, 66.70218333333332]], [[81.86197916666667, 68.10555555555555], [81.28434504792332, 74.88210862619809], [82.79291824149593, 80.07459717525364]]]
+   #   特征图缩放比例(顺序与上面anchors_set一致，数量也必须要一致)
+   scales_set: [32, 16, 8]
+   #   训练集相关
+   in_train: /Users/irenebritney/Desktop/vcode/dataset/num_letter/train
+   count_train: 20000
+   label_train: temp/dataset/num_letter/train_cels.jsons
+   label_train_mutiple: false
+   #   验证集相关
+   in_val: /Users/irenebritney/Desktop/vcode/dataset/num_letter/val
+   count_val: 100
+   label_val: temp/dataset/num_letter/val_cells.jsons
+   label_val_mutiple: false
+   #   测试集相关
+   in_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test
+   count_test: 100
+   label_test: temp/dataset/num_letter/test_cells.jsons
+   label_test_mutiple: false
+   #   数据集后处理
+   batch_size: 2
+   epochs: 2
+   shuffle_buffer_rate: -1
+   
+   
+#   yolo_v4相关配置
+v4: 
+   #   训练相关配置
+   learning_rate: 0.001
+   save_weights_dir: temp/models
+   tensorboard_dir: logs/tensorboard
+   #   loss相关配置
+   loss_lamda_box: 1
+   loss_lamda_confidence: 1
+   loss_lamda_unconfidence: 0.5
+   loss_lamda_cls: 1
+   #   置信度阈值。超过此阈值则判定为物体，否则为背景
+   threshold_confidence: 0.5
+   
+      
+   

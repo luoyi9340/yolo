@@ -1,0 +1,197 @@
+YOLO V1
+网络结构(darknet-19)：
+	输入：448 * 448 * 3
+	-------- layer1 --------
+	Conv: [7*7*64] strides=2 padding=0 active=leakReLU out=[223 * 223 * 64]
+	pooling: max out=[112 * 112 * 64]
+	-------- layer2 --------
+	Conv: [3*3*192] strides=1 padding=1 active=leakReLU out=[112 * 112 * 192]
+	pooling: max [2*2] out=[56 * 56 * 192]
+	-------- layer3 --------
+	Conv: [1*1*128] strides=1 padding=0 active=leakReLU out=[56 * 56 * 128]
+	Conv: [3*3*256] strides=1 padding=1 active=leakReLU out=[56 * 56 * 256]
+	Conv: [1*1*256] strides=1 padding=0 active=leakReLU out=[56 * 56 * 256]
+	Conv: [3*3*512] strides=1 padding=1 active=leakReLU out=[56 * 56 * 512]
+	pooling: max [2*2] out=[28 * 28 * 512]
+	-------- layer4 --------
+	Conv: [1*1*256] strides=1 padding=0 active=leakReLU out=[28 * 28 * 256]
+	Conv: [3*3*512] strides=1 padding=1 active=leakReLU out=[28 * 28 * 512]
+	Conv: [1*1*256] strides=1 padding=0 active=leakReLU out=[28 * 28 * 256]
+	Conv: [3*3*512] strides=1 padding=1 active=leakReLU out=[28 * 28 * 512]
+	Conv: [1*1*256] strides=1 padding=0 active=leakReLU out=[28 * 28 * 256]
+	Conv: [3*3*512] strides=1 padding=1 active=leakReLU out=[28 * 28 * 512]
+	Conv: [1*1*256] strides=1 padding=0 active=leakReLU out=[28 * 28 * 256]
+	Conv: [3*3*512] strides=1 padding=1 active=leakReLU out=[28 * 28 * 512]
+	Conv: [1*1*512] strides=1 padding=0 active=leakReLU out=[28 * 28 * 512]
+	Conv: [3*3*1024] strides=1 padding=1 active=leakReLU out=[28 * 28 * 1024]
+	pooling: max [2*2] out=[14 * 14 * 1024]
+	-------- layer5 --------
+	Conv: [1*1*512] strides=1 padding=0 active=leakReLU out=[14 * 14 * 512]
+	Conv: [3*3*1024] strides=1 padding=1 active=leakReLU out=[14 * 14 * 1024]
+	Conv: [1*1*512] strides=1 padding=0 active=leakReLU out=[14 * 14 * 512]
+	Conv: [3*3*1024] strides=1 padding=1 active=leakReLU out=[14 * 14 * 1024]
+	Conv: [3*3*1024] strides=1 padding=1 active=leakReLU out=[14 * 14 * 1024]
+	Conv: [3*3*1024] strides=2 padding=1 active=leakReLU out=[7 * 7 * 1024]
+	-------- layer6 --------
+	Conv: [3*3*1024] strides=1 padding=1 active=leakReLU out=[7 * 7 * 1024]
+	Conv: [3*3*1024] strides=1 padding=1 active=leakReLU out=[7 * 7 * 1024]
+	-------- layer7 --------
+	pooling: avg [7*7] out=[1 * 1 * 1024]
+	Flatten: out=[1024]
+	fc: [4096] active=leakReLU out=[4096]
+	fc: [1470] out=[1470]			1470 = 7(特征图宽度) * 7(特征图高度) * [2(bbox个数) * 5(x,y,w,h,c) + 20(类别数)]
+									c = P(cell包含物体的置信度 * bbox与标注框的IoU)
+										cell包含物体的置信度 = 1(cell中包含物体) | 0(cell中不包含物体)
+										IoU = (bbox ∩ 标注框) / [bbox ∪ 标注框 - bbox ∩ 标注框]
+	reshape: out=[7 * 7 * 30]
+				30 = 2个box * 5 + 20个分类
+				[第1个box的(x, y, w, h, c), 第2个box的(x, y, w, h, c), 20个分类的得分]
+	
+损失函数：
+	loss = λbbox * loss_bbox 
+			+ λobj * loss_objconfidence 
+			+ λunobj * loss_unobjconfidence
+			+ λcls * loss_cls
+	其中：
+	loss_bbox为坐标预测：
+		λbbox = 5
+		loss_bbox = ∑(i∈(网格)) ∑(j∈(B)) U[i,j] * [(x[i,j] - x_[i])² + (y[i,j] - y_[i])²]
+						+
+					∑(i∈(网格)) ∑(j∈(B)) U[i,j] * [(√w[i,j] - √w_[i])² + (√h[i,j] - √h_[i])²]
+		U[i,j] = 1 第i个网格中，第j个box包含物体
+			   	   0 第i个网格中，第j个box不包含物体
+		x_[i] = 表示第i个网格负责的标注物体 中心点x坐标 相对第i个网格左上点x坐标 的偏移量。[0,1]之间
+		y_[i] = 表示第i个网格负责的标注物体 中心点y坐标 相对第i个网格左上点y坐标 的偏移量。[0,1]之间
+		w_[i] = 表示第i个网格负责的标注物体 宽度 相对于整图宽度的占比。[0,1]之间
+		h_[i] = 表示第i个网格负责的标注物体 高度 相对于整图高度的占比。[0,1]之间
+		x[i,j] = 表示第i个网格 第j个box负责的标注物体 预测中心点x坐标 相对第i个网格左上点x坐标 的偏移量。[0,1]之间
+		y[i,j] = 表示第i个网格 第j个box负责的标注物体 预测中心点y坐标 相对第i个网格左上点y坐标 的偏移量。[0,1]之间
+		w[i,j] = 表示第i个网格 第j个box负责的标注物体 预测宽度 相对整图宽度的占比。[0,1]之间
+		h[i,j] = 表示第i个网格 第j个box负责的标注物体 预测高度 相对整图高度的占比。[0,1]之间
+		第i个网格中，所有box中，与标注o IoU最大的那个box，即为第i个网格，第j个box对第o个物体负责
+		w和h开根号是为了保持大小物体的一致性（但实际上收效甚微）
+		
+	loss_objconfidence为包含物体的得分预测：
+		λobj = 1
+		loss_objconfidence = ∑(i∈(网格)) ∑(j∈(B)) U[i,j] * (c[i,j] - c_[i])²
+		U[i,j] = 1 第i个网格中，第j个box包含物体
+			   	 0 第i个网格中，第j个box不包含物体
+		c_[i] = 1 第i个网格包含物体
+				0 第i个网格不包含物体
+		c[i] = P(第i个网格包含物体的置信度 * IoU)
+				第i个网格包含物体的置信度 = 1 第i个网格包含物体
+										0 第i个网格不包含物体
+				IoU = (bbox ∩ 标注框) / [bbox ∪ 标注框 - bbox ∩ 标注框]
+						注：这里取第j个网格与所有物体IoU中最大的那个（表示该物体由第j个网格负责）
+	
+	loss_objunconfidence为不包含物体的得分预测（背景预测）：
+		λunobj = 0.5
+		loss_unobjconfidence = ∑(i∈(网格)) ∑(j∈(B)) U[i,j] * (c[i,j] - c_[i])²
+		Un[i,j] = 1 第i个网格中，第j个box不包含物体
+			   	  0 第i个网格中，第j个box包含物体
+		c 与 c_计算方式与 loss_objconfidence 一致		
+		
+	loss_cls为类别预测：
+		λcls = 1
+		loss_cls = ∑(c∈(类别数)) ∑(i∈(网格)) U[i,j] * (p[i,c] - p_[i,c])²
+		Un[i,j] = 1 第i个网格中，第j个box不包含物体
+			   	  0 第i个网格中，第j个box包含物体
+		p_[i,c] = 第i个网格内标注物体为第c个物体的概率
+					1 第c个物体
+					0 其他
+		p[i,c] = 第i个网格内，第c个物体的概率得分
+	
+	
+训练过程：
+	数据准备：
+		1 按最终特征图比例将原图划分成H*W个区域（假定最终特征图是H*W的）
+		2 判断标注框中心点分别落在哪些区域，并记录区域idxH,idxW值（特征图H, W索引）
+			对于没有中心点落入的区域，判断为背景
+		由此生成y_true: tensor(H, W, 6)
+			tensor(h, w, 0)：cell[h, w]中 标注框中心点原图坐标相对于小区域左上点原图w坐标的偏移[0,1]
+								计算公式：(gt[x] - cell[x]) / unit_w
+											gt[x] = 标注框相对原图中心点w坐标
+											cell[x] = 小区域相对原图左上点w坐标
+											unit_w = 宽度缩放比例
+							 -1 小区域cell内不存在标注框中心点
+			tensor(h, w, 1)：cell[h,w]中 标注框中心点原图坐标相对于小区域左上点原图h坐标的偏移[0,1]
+								计算公式：(gt[y] - cell[y]) / unit_h
+											gt[y] = 标注框相对原图中心点h坐标
+											cell[y] = 小区域相对原图左上点h坐标
+											unit_h = 高度缩放比例
+							 -1 cell[h,w]内不存在标注框中心点
+			tensor(h, w, 2)：cell[h,w]中标注框宽度 / 整图宽度
+							 -1 cell[h,w]内不存在标注框中心点
+			tensor(h, w, 3)：cell[h,w]中标注框高度 / 整图高度
+							 -1 cell[h,w]内不存在标注框中心点
+			tensor(h, w, 4)：1 cell[h,w]内存在标注框中心点
+							 0 cell[h,w]内不存在标注框中心点
+			tensor(h, w, 5)：cell[h,w]内存在标注框中心点时，标注框对应的分类索引
+					   		 -1 cell[h,w]内不存在标注框中心点
+	训练过程：
+		step1：原图reshape为统一大小（比如 N * M）
+		step2：过上述网络结构，拿到特征图tensor(batch_size, H, W, B*5 + C)
+				(batch_size, h, w, 0)：第1个box的置信度
+				(batch_size, h, w, 1)：第1个box的x，相对于cell[h,w]左上点坐标的偏移
+				(batch_size, h, w, 2)：第1个box的y，相对于cell[h,w]左上点坐标的偏移
+				(batch_size, h, w, 3)：第1个box的w，相对于整图的宽度占比
+				(batch_size, h, w, 4)：第1个box的h，相对于整图的高度占比
+				...
+				(batch_size, h, w, B*5 ~ C-1)：该cell从属于每个分类的概率
+		step3：计算loss：
+				 	loss = λbbox * loss_bbox 
+							+ λobj * loss_objconfidence 
+							+ λunobj * loss_unobjconfidence
+							+ λcls * loss_cls
+				取出前/背景数据
+				前景数据：					
+					y: 对于存在标注框中心点的cell（判断条件：y_true[y_true[:, :,:, 4] == 1]）
+					x: 根据符合上面条件的y_true中的h,w从fmaps中取tensor(batch_size, h, w, B*5 + C)
+				背景数据：
+					y: 判断条件（y_true[y_true[:, :,:, 4] == 0]）
+					x: 根据符合上面条件的y_true中的h,w从fmaps中取tensor(batch_size, h, w, B*5 + C)
+				前景数据中，每个cell取IoU最大的box，记为max_box，计算方式：
+					j = 0 ~ B
+						x[h,w,j] = (batch_size, h, w, 1 + j*5)
+						y[h,w,j] = (batch_size, h, w, 2 + j*5)
+						w[h,w,j] = (batch_size, h, w, 3 + j*5)
+						h[h,w,j] = (batch_size, h, w, 4 + j*5)
+						c[h,w,j] = (batch_size, h, w, 0 + j*5)
+						p[h,w,c] = (batch_size, h, w, c)
+						x_[h,w] = y_true[batch_size, h,w,0]
+						y_[h,w] = y_true[batch_size, h,w,1]
+						w_[h,w] = y_true[batch_size, h,w,2]
+						h_[h,w] = y_true[batch_size, h,w,3]
+						c_[h,w] = y_true[batch_size, h,w,4]
+						p_[h,w,c] = y_true[batch_size, h,w,c]
+					取其中最大的IoU为需要负责的box。记为：max_box(x,y,w,h)
+				边框回归loss(loss_bbox)：
+					λbbox = 5（配置文件决定）
+					根据公式计算loss：
+						loss_bbox = λbbox 
+										* 
+									∑(i∈前景数据max_box) [(x[i] - x_[i])² + (y[i] - y_[i])²]
+										+
+									∑(i∈前景数据max_box) [(√w[i,j] - √w_[i])² + (√h[i,j] - √h_[i])²]
+				前景loss：
+					λobj = 1（配置文件决定）
+					根据公式计算loss：
+						loss_objconfidence = ∑(i∈(前景数据max_box)) (c[i,j] - c_[i])²
+				背景loss：
+					λunobj = 0.5（配置文件决定）
+					根据公式计算loss：
+						loss_unobjconfidence = ∑(i∈背景数据)(c[i,j] - c_[i])²
+				分类loss：
+					λcls = 1（配置文件决定）
+					根据公式计算loss：
+						loss_cls =  ∑(i∈(前景数据max_box))(p[i,c] - p_[i,c])²
+				
+
+预测过程：
+	step1：原图过yolo网络，拿到特征图 tensor(batch_size, H, W, B*5 + C)
+	step2：每个cell中取置信度超过阈值(0.1)的box保留下来
+	step3：每个cell中对于超过1个的box取置信度最大的box保留
+	step4：nms算法
+				
+				
+				
