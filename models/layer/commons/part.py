@@ -333,6 +333,8 @@ class UpSamplingOpType(Enum):
     #    填充（下层1个像素映射为上层[strides[0] * strides[1]]的区域）
     Filling = 3
     pass
+
+
 #    上采样
 class UpSampling(tf.keras.layers.Layer):
     def __init__(self,
@@ -366,8 +368,7 @@ class UpSampling(tf.keras.layers.Layer):
                                                                    bias_initializer=tf.initializers.zeros())
             pass
         pass
-    
-    #    规范输出格式
+
     def compute_output_shape(self, input_shape):
         #    高度，宽度，通道数
         H, W, C = input_shape[1], input_shape[2], input_shape[-1]
@@ -386,7 +387,7 @@ class UpSampling(tf.keras.layers.Layer):
         elif (self._op_type == UpSamplingOpType.Filling):
             return (None, H * S[0], W * S[1], C)
         
-        return tf.keras.layers.Layer.compute_output_shape(self, input_shape)
+        return (None, self._output_shape[0], self._output_shape[1], self._output_shape[2])
     
     #    reshape
     def reshape(self, x):

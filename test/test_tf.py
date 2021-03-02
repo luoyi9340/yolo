@@ -6,6 +6,8 @@ Created on 2021年2月18日
 '''
 import tensorflow as tf
 
+print(tf.version.VERSION)
+
 
 num_object, num_classes = 4, 10
 a = tf.random.uniform(shape=(num_object, num_classes))
