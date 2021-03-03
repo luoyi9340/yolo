@@ -249,7 +249,7 @@ class YoloLosses(tf.keras.losses.Loss):
             anchor_liable = tf.gather_nd(anchor, indices=tf.where(anchor > 0))
             #    loss_unconfidence = ∑(i∈cells) ∑(j∈anchors) Un[i,j] * [(1 - c_[i,j]) * -log(1 - c[i,j])]
             #    不用纠结标签让他优化到多少了，都是0。(confidence = P(objecg) * IoU P(Object)=0)
-            loss_unconfidence = - tf.math.log(1 - anchor_liable)
+            loss_unconfidence = -tf.math.log(1 - anchor_liable)                 #    
             loss_unconfidence = tf.reduce_mean(loss_unconfidence)
             loss.append(loss_unconfidence)
             pass
@@ -279,16 +279,13 @@ class YoloLosses(tf.keras.losses.Loss):
             #    取分类预测 tensor(num_object, num_classes)
             cls_prob = liable_anchors[:, :num_classes]
             #    取真实分类索引 tensor(num_object, )
-            cls_true = tf.cast(liable_anchors[:, num_classes + 7 + 5], dtype=tf.int64)
-            
-            #    通过cls_true从cls_prob里取需要用到的分类预测
-            idx_cls = tf.stack([tf.range(cls_true.shape[0], dtype=tf.int64),
-                                cls_true], axis=-1)
-            cls_prob = tf.gather_nd(cls_prob, indices=idx_cls)
+            cls_true = tf.cast(liable_anchors[:, num_classes + 7 + 5], dtype=tf.int64)      #    tensor(num_object, )
+            cls_true = tf.one_hot(cls_true, num_classes)                                    #    tensor(num_object, num_classes)
             
             #    loss_cls = ∑(i∈cells) ∑(j∈anchors) ∑(c∈类别集合) U[i,j] * [p_[i,j,c] * -log(p[i,j,c]) + (1 - p_[i,j,c]) * -log(1 - p[i,j,c])]
-            loss_cls = 1 * (- tf.math.log(cls_prob))
-            loss_confidence = tf.math.reduce_mean(loss_cls)
+            loss_cls = cls_true * -tf.math.log(cls_prob) + (1 - cls_true) * -tf.math.log(1 - cls_prob)      #    tensor(num_object, num_classes)
+            loss_confidence = tf.math.reduce_sum(loss_cls, axis=-1)                                         #    tensor(num_object, )
+            loss_confidence = tf.math.reduce_mean(loss_confidence)
             loss.append(loss_confidence)
             pass
         loss = tf.convert_to_tensor(loss)
