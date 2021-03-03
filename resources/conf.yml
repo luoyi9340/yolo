@@ -35,17 +35,17 @@ dataset_cells:
    #   训练集相关
    in_train: /Users/irenebritney/Desktop/vcode/dataset/num_letter/train
    count_train: 20000
-   label_train: temp/dataset/num_letter/train_cels.jsons
+   label_train: /Users/irenebritney/Desktop/vcode/dataset/num_letter/train_cels.jsons
    label_train_mutiple: false
    #   验证集相关
    in_val: /Users/irenebritney/Desktop/vcode/dataset/num_letter/val
    count_val: 100
-   label_val: temp/dataset/num_letter/val_cells.jsons
+   label_val: /Users/irenebritney/Desktop/vcode/dataset/num_letter/val_cells.jsons
    label_val_mutiple: false
    #   测试集相关
    in_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test
    count_test: 100
-   label_test: temp/dataset/num_letter/test_cells.jsons
+   label_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test_cells.jsons
    label_test_mutiple: false
    #   数据集后处理
    batch_size: 2

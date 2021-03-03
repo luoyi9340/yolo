@@ -9,18 +9,13 @@ import tensorflow as tf
 print(tf.version.VERSION)
 
 
-num_object, num_classes = 4, 10
-a = tf.random.uniform(shape=(num_object, num_classes))
-b = tf.random.uniform(shape=(num_object,), minval=0, maxval=num_classes, dtype=tf.int32)
+a = tf.random.uniform(shape=(10, 5))
+b = tf.random.uniform(shape=(10,), minval=0, maxval=5, dtype=tf.int32)
+b = tf.one_hot(b, 5)
+print(a)
 print(b)
 
-a = tf.cast(tf.math.argmax(a, axis=-1), dtype=tf.int32)
-print(a)
-
-res = tf.equal(a, b)
-print(res)
-T = tf.math.count_nonzero(res)
-TP = res.shape[0]
-print(tf.stack([T, TP], axis=-1))
-
+loss = b * -tf.math.log(a) + (1 - b) * -tf.math.log(1 - a)
+loss = tf.math.reduce_sum(loss, axis=-1)
+print(loss)
 
