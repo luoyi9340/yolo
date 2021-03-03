@@ -20,7 +20,7 @@ train_v4:
 
 
 #   loss相关日志
-losse_v4:
+losses_v4:
    level: INFO
    out: logs/losses/v4.log
    console: true
