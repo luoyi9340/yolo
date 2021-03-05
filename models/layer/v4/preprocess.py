@@ -10,7 +10,7 @@ import threading
 import utils.alphabet as alphabet
 import utils.conf as conf
 from models.layer.commons.part import YoloHardRegister
-from utils.iou import ciou_b_n21_tf, iou_b_n21_tf
+from utils.iou import ciou_n21_tf, iou_b_n21_tf
 
 
 #    根据y_true的idxH, idxW从yolohard中拿负责预测的cell（cell中包含anchor信息）
@@ -64,7 +64,8 @@ def takeout_liable_anchors(liable_cells,
                            y_true_liable, 
                            fmaps_shape, 
                            num_classes=len(alphabet.ALPHABET), 
-                           num_anchors=conf.DATASET_CELLS.get_anchors_set().shape[1]):
+                           num_anchors=conf.DATASET_CELLS.get_anchors_set().shape[1],
+                           threshold_liable_iou=conf.V4.get_threshold_liable_iou()):
     '''从liable_cells中取出负责预测物体和不负责预测物体的anchor
         并且追加loss中需要用到的全部值: 
             对于负责的anchor：追加置信度，CIoU, 物体真实分类索引
@@ -78,15 +79,21 @@ def takeout_liable_anchors(liable_cells,
                              list [batch_size个]
                                 tensor (物体个数, 2 + 5 + num_anchor * 3): 
                                         2: idxH, idxW
-                                        5: [x,y(相对cell左上角的偏移), w,h(整图占比)]
+                                        5: [x,y(相对cell左上角的偏移), w,h(整图占比), idxV]
                                         num_anchor * 3: num_anchor个anchor的[IoU, w,h(整图占比)]
         @param fmaps_shape: tuple(H, W) 此时的特征图高宽
+        @param threshold_liable_iou: 负责预测的anchor与gt的IoU阈值。超过阈值的anchor都会被判定为负责预测的anchor
+                                        若所有anchor与gt的IoU都小于阈值，则取最大的
         
-        @return: list [(liable_anchors ... batch_size ...]
-                    liable_anchors: tensor(物体个数, num_classes + 7 + 6)
-                                                num_classes: 每个分类得分
-                                                7: anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, anchor的[xl,yl, xr,yr]
-                                                6: gt的[xl,yl, xr,yr, relative_area, idxV]
+        @return: list([ ... batch_size个 ...])
+                    list([... num_object个 ...])
+                        tensor(num_liable, num_classes + 7 + 6)
+                                num_object: 图片中物体个数
+                                num_liable: 每个物体所在的cell中负责检测的anchor数
+                                num_classes: 各个分类得分
+                                7: anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, anchor的[xl,yl, xr,yr]
+                                6: gt的[xl,yl, xr,yr, relative_area, idxV]
+                    ...
     '''
     res = []
     #    循环每对cell和y
@@ -106,40 +113,81 @@ def takeout_liable_anchors(liable_cells,
         anchors_boxes = restore_box(y, cells, idxHW, num_anchors, num_classes)
         
         #    取出负责预测的anchors和不负责预测的anchors
-        #    负责预测的anchors tensor(num_object, num_classes + 5), 索引信息[idx_object, idx_anchors]
-        #    不负责预测的anchors tensor(num_object, num_anchors - 1, num_classes + 5), 索引信息[idx_object, idx_anchors]
-        liable_anchors, idx_liable = get_liable_anchors(cells, gts_box, anchors_boxes, num_object, num_anchors)
+        #    负责预测的anchors list[... num_object ...] tensor(num_liable_anchors, num_classes + 5), 索引信息[idx_object, idx_anchors]
+        #    不负责预测的anchors list[... num_object ...] tensor(num_liable_anchors - 1, num_classes + 5), 索引信息[idx_object, idx_anchors]
+        liable_anchors_list, idx_liables_list = get_liable_anchors(cells, gts_box, anchors_boxes, num_object, num_anchors, threshold_liable_iou)
         
-        #    计算负责预测anchors与其对应的gt的CIoU tensor(num_object, 1)
-        liable_anchors_box = tf.gather_nd(anchors_boxes, idx_liable)
-        liable_anchors_box = tf.expand_dims(liable_anchors_box, axis=1)
-        liable_ciou = ciou_b_n21_tf(liable_anchors_box, gts_box)
-        #    取出负责预测anchors的预测置信度 tensor(num_object, 1)
-        liable_confidence_prob = liable_anchors[:, num_classes]
-        #    取出负责预测anchors的标记置信度 tensor(num_object, 1) 其实就是IoU
-        y_anchors_info = y[:, 7:]
-        y_anchors_info = tf.reshape(y_anchors_info, shape=(num_object, num_anchors, 3))           #    tensor(num_object, num_anchors, 3)
-        liable_y = tf.gather_nd(y_anchors_info, indices=idx_liable)
-        liable_confidence_true = liable_y[:, 0]
-        #    取出负责预测anchors的各个分类得分
-        liable_cls = liable_anchors[:, :num_classes]
-        #    合并为负责预测anchors信息 tensor(num_object, num_classes + 2 + 2)
-        liable_anchors_info = tf.concat([#    各个分类得分
-                                         liable_cls,
-                                         #    预测置信度，真实置信度，CIoU，anchor的[xl,yl, xr,yr]
-                                         tf.expand_dims(liable_confidence_prob, axis=-1), 
-                                         tf.expand_dims(liable_confidence_true, axis=-1), 
-                                         liable_ciou,
-                                         tf.squeeze(liable_anchors_box),
-                                         #    gt的[xl,yl, xr,yr, relative_area, idxV]
-                                         gts_box,
-                                         ], axis=-1)
+        #    循环每对liable_anchors和他们的索引
+        liable_anchors_info_list = []
+        for liable_anchors, idx_liables, anchors_box, y_cell, gt_box in zip(liable_anchors_list, idx_liables_list, anchors_boxes, y, gts_box):
+            #    liable_anchors tensor(num_liable_anchors, num_class+5)
+            #    idx_liables tensor(num_liable_anchors, )
+            #    anchors_box tensor(num_anchors, 4)
+            #    y_cell tensor(2 + 5 + num_anchor * 3, ) 
+            #    gt_box tensor(6,)
+            
+            #    计算负责预测anchors与其对应的gt的CIoU tensor(num_liable_anchors, 1)
+            liable_anchors_box = tf.gather_nd(anchors_box, idx_liables)
+            liable_ciou = ciou_n21_tf(liable_anchors_box, gt_box)
+            liable_ciou = tf.expand_dims(liable_ciou, axis=-1)
+            #    取出负责预测anchors的预测置信度 tensor(num_liable_anchors, 1)
+            liable_confidence_prob = liable_anchors[:, num_classes]
+            liable_confidence_prob = tf.expand_dims(liable_confidence_prob, axis=-1)
+            #    取出负责预测anchors的标记置信度 tensor(num_liable_anchors, 1) 其实就是IoU
+            y_anchors_info = y_cell[7:]
+            y_anchors_info = tf.reshape(y_anchors_info, shape=(num_anchors, 3))                   #    tensor(num_anchors, 3)
+            liable_y = tf.gather_nd(y_anchors_info, indices=idx_liables)                          #    tensor(num_liable_anchors, 3)
+            liable_confidence_true = liable_y[:,0]                                                  #    tensor(num_liable_anchors, 1)
+            liable_confidence_true = tf.expand_dims(liable_confidence_true, axis=-1)
+            #    取出负责预测anchors的各个分类得分
+            liable_cls = liable_anchors[:, :num_classes]                                          #    tensor(num_liable_anchors, 5)
+            #    当前需要追加的gt_box信息 tensor(num_liable_amchprs, 6)
+            gt_box = tf.expand_dims(gt_box, axis=0)
+            gt_box = tf.repeat(gt_box, repeats=liable_anchors.shape[0], axis=0)
+            #    合并为负责预测anchors信息 tensor(num_liable_classes + 7 + 6)
+            liable_anchors_info = tf.concat([#    各个分类得分
+                                             liable_cls,
+                                             #    预测置信度，真实置信度，CIoU，anchor的[xl,yl, xr,yr]
+                                             liable_confidence_prob,  
+                                             liable_confidence_true, 
+                                             liable_ciou,
+                                             liable_anchors_box,
+                                             #    gt的[xl,yl, xr,yr, relative_area, idxV]
+                                             gt_box,
+                                             ], axis=-1)
+            liable_anchors_info_list.append(liable_anchors_info)
+            pass
+        
+#         #    计算负责预测anchors与其对应的gt的CIoU tensor(num_object, 1)
+#         liable_anchors_box = tf.gather_nd(anchors_boxes, idx_liable)
+#         liable_anchors_box = tf.expand_dims(liable_anchors_box, axis=1)
+#         liable_ciou = ciou_b_n21_tf(liable_anchors_box, gts_box)
+#         #    取出负责预测anchors的预测置信度 tensor(num_object, 1)
+#         liable_confidence_prob = liable_anchors[:, num_classes]
+#         #    取出负责预测anchors的标记置信度 tensor(num_object, 1) 其实就是IoU
+#         y_anchors_info = y[:, 7:]
+#         y_anchors_info = tf.reshape(y_anchors_info, shape=(num_object, num_anchors, 3))           #    tensor(num_object, num_anchors, 3)
+#         liable_y = tf.gather_nd(y_anchors_info, indices=idx_liable)
+#         liable_confidence_true = liable_y[:, 0]
+#         #    取出负责预测anchors的各个分类得分
+#         liable_cls = liable_anchors[:, :num_classes]
+#         #    合并为负责预测anchors信息 tensor(num_object, num_classes + 2 + 2)
+#         liable_anchors_info = tf.concat([#    各个分类得分
+#                                          liable_cls,
+#                                          #    预测置信度，真实置信度，CIoU，anchor的[xl,yl, xr,yr]
+#                                          tf.expand_dims(liable_confidence_prob, axis=-1), 
+#                                          tf.expand_dims(liable_confidence_true, axis=-1), 
+#                                          liable_ciou,
+#                                          tf.squeeze(liable_anchors_box),
+#                                          #    gt的[xl,yl, xr,yr, relative_area, idxV]
+#                                          gts_box,
+#                                          ], axis=-1)
         
 #         #    取出不负责预测anchors的置信度 tensor(num_object, num_anchors-1, 1)
 #         liable_confidence = unliable_anchors[:, num_classes]
 #         unliable_anchors_info = tf.expand_dims(liable_confidence, axis=-1)
         
-        res.append(liable_anchors_info)
+        res.append(liable_anchors_info_list)
         pass
     
     return res
@@ -209,29 +257,59 @@ def restore_box(y, cells, idxHW, num_anchor, num_classes):
     return anchors_boxes
 
 #    取负责预测的anchors，和cell中不负责预测的anchors
-def get_liable_anchors(cells, gts_box, anchors_boxes, num_object, num_anchor):
+def get_liable_anchors(cells, gts_box, anchors_boxes, num_object, num_anchor, 
+                       threshold_liable_iou=conf.V4.get_threshold_liable_iou()):
     '''
         @param cells: 负责预测的cell信息 tensor(num_object, num_anchors, num_classes+5)
         @param gts_box: 标记框还原出的gts_box tensor(num_object, 4) [xl,yl, xr,yr]相对特征图坐标
         @param anchors_boxes: anchors信息还原出的anchors_boxes tensor(num_object, num_anchors, 4) [xl,yl, xr,yr]相对特征图坐标
         @param num_object: 图片中的物体总数
         @param num_anchor: 每个cell中的anchor数
-        @return: 负责预测的anchors tensor(num_object, num_classes + 5),
-                 idx_liable
-                 不负责预测的anchors tensor(num_object, num_anchors - 1, num_classes + 5),
-                 idx_unliable
+        @param threshold_liable_iou: 负责预测的anchor与gt的IoU阈值。超过阈值的anchor都会被判定为负责预测的anchor
+                                        若所有anchor与gt的IoU都小于阈值，则取最大的
+        @return: liable_anchors: 负责预测的anchors list[... num_object个 ...]  
+                                                    tensor(num_liable, num_classes + 5),
+                                                        num_liable: 负责预测的anchor个数
+                                                        num_classes: 分类预测
+                                                        5: [confidence, dx,dy(相对cell左上角的偏移),dw,dh(图片缩放比)]
+                 idx_liable: 负责预测的anchor在cell的anchors中的索引 list[... num_object个 ...]
+                                                     tensor(num_liable, 2)
+                                                         num_liable: 负责预测的anchor个数
+                                                         2: [第几个cell, 第几个anchor]
     '''
     #    计算anchors与gt的IoU tensor(num_object, num_anchor)
     iou = iou_b_n21_tf(rect_srcs=anchors_boxes, rect_tag=gts_box)
+    #    取大于阈值的IoU的索引
+    idx_iou = tf.where(iou > threshold_liable_iou)
+    
+    #    如果没有超过阈值的IoU，则取最大IoU
+    if (idx_iou.shape[0] == 0):
+        idx_max_iou = tf.math.argmax(iou, axis=-1)
+        idx_max_iou = tf.cast(idx_max_iou, dtype=tf.int32)
+        idxB = tf.range(num_object)
+        idx_iou = tf.stack([idxB, idx_max_iou], axis=-1)
+        pass
+    
+    #    组合成list (... num_object ...) tensor(num_liable, num_classes + 5)
+    liable_anchors = []
+    idx_liable = []
+    for o in range(num_object):
+        idx_liables = idx_iou[idx_iou[:,0] == o]
+        liables = tf.gather_nd(cells, idx_liables)
+        liable_anchors.append(liables)
+        idx_liables = idx_liables[:,1]
+        idx_liables = tf.expand_dims(idx_liables, axis=-1)
+        idx_liable.append(idx_liables)
+        pass
+    
     #    每个num_object取IoU最大的索引，和最大的IoU
-    idx_max_iou = tf.math.argmax(iou, axis=-1)
+#     idx_max_iou = tf.math.argmax(iou, axis=-1)
 #     max_iou = tf.math.reduce_max(iou, axis=-1)
-        
     #    取负责预测的anchor
-    idx_max_iou = tf.cast(idx_max_iou, dtype=tf.int32)
-    idxB = tf.range(num_object)
-    idx_liable = tf.stack([idxB, idx_max_iou], axis=-1)
-    liable_anchors = tf.gather_nd(cells, idx_liable)                      #    负责预测的anchors tensor(num_object, num_classes + 5)
+#     idx_max_iou = tf.cast(idx_max_iou, dtype=tf.int32)
+#     idxB = tf.range(num_object)
+#     idx_liable = tf.stack([idxB, idx_max_iou], axis=-1)
+#     liable_anchors = tf.gather_nd(cells, idx_liable)                      #    负责预测的anchors tensor(num_object, num_classes + 5)
         
     #    取不负责预测的anchors
     #    如果max_iou中存在0值（真实数据上不会存在，测试时随机数据中会存在），则加一个很小的值

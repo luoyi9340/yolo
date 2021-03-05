@@ -49,9 +49,9 @@ def load_conf_yaml(yaml_path=CONF_PATH):
                                  c['dataset_cells']['in_train'], c['dataset_cells']['count_train'], c['dataset_cells']['label_train'], c['dataset_cells']['label_train_mutiple'],
                                  c['dataset_cells']['in_val'], c['dataset_cells']['count_val'], c['dataset_cells']['label_val'], c['dataset_cells']['label_val_mutiple'],
                                  c['dataset_cells']['in_test'], c['dataset_cells']['count_test'], c['dataset_cells']['label_test'], c['dataset_cells']['label_test_mutiple'],
-                                 c['dataset']['batch_size'],
-                                 c['dataset']['epochs'],
-                                 c['dataset']['shuffle_buffer_rate'])
+                                 c['dataset_cells']['batch_size'],
+                                 c['dataset_cells']['epochs'],
+                                 c['dataset_cells']['shuffle_buffer_rate'])
     
     v4 = V4(c['v4']['learning_rate'],
             c['v4']['save_weights_dir'],
@@ -60,7 +60,7 @@ def load_conf_yaml(yaml_path=CONF_PATH):
             c['v4']['loss_lamda_confidence'],
             c['v4']['loss_lamda_unconfidence'],
             c['v4']['loss_lamda_cls'],
-            c['v4']['threshold_confidence'])
+            c['v4']['threshold_liable_iou'])
     return c, dataset, dataset_cells, v4
 
 
@@ -186,7 +186,7 @@ class V4():
                  loss_lamda_confidence=1.,
                  loss_lamda_unconfidence=0.5,
                  loss_lamda_cls=1.,
-                 threshold_confidence=0.5):
+                 threshold_liable_iou=0.5):
         self.__learning_rate = learning_rate
         self.__save_weights_dir = save_weights_dir
         self.__tensorboard_dir = tensorboard_dir
@@ -194,7 +194,7 @@ class V4():
         self.__loss_lamda_confidence = loss_lamda_confidence
         self.__loss_lamda_unconfidence = loss_lamda_unconfidence
         self.__loss_lamda_cls = loss_lamda_cls
-        self.__threshold_confidence = threshold_confidence
+        self.__threshold_liable_iou = threshold_liable_iou
         pass
     def get_learning_rate(self): return self.__learning_rate
     def get_save_weights_dir(self): return convert_to_abspath(self.__save_weights_dir)
@@ -205,7 +205,7 @@ class V4():
     def get_loss_lamda_unconfidence(self): return self.__loss_lamda_unconfidence
     def get_loss_lamda_cls(self): return self.__loss_lamda_cls
     
-    def get_threshold_confidence(self): return self.__threshold_confidence
+    def get_threshold_liable_iou(self): return self.__threshold_liable_iou
     pass
 
 

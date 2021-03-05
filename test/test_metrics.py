@@ -10,7 +10,7 @@ import numpy as np
 np.set_printoptions(suppress=True)  
 
 
-from models.layer.v4.losses import YoloLosses
+from models.layer.v4.metrics import YoloMetricBox, YoloMetricConfidence, YoloMetricUnConfidence, YoloMetricClasses
 from models.layer.v4.preprocess import takeout_liable_cells, takeout_liable_anchors, takeout_unliable_anchors
 from models.layer.v4.preprocess import get_gt_from_y, restore_box, get_liable_anchors
 from utils.iou import ciou_b_n21_tf
@@ -59,15 +59,21 @@ unliable_anchors = takeout_unliable_anchors(y_true_liable, yolohard, num_anchors
 print('\n不负责预测的anchors')
 print(unliable_anchors)
   
-  
-yolo_loss = YoloLosses()
-loss_box = yolo_loss.loss_box(liable_anchors_list, num_classes)
-loss_confidence = yolo_loss.loss_confidence(liable_anchors_list, num_classes)
-loss_cls = yolo_loss.loss_cls(liable_anchors_list, num_classes)
-loss_unconfidence = yolo_loss.loss_unconfidence(unliable_anchors)
-print(loss_box)
-print(loss_confidence)
-print(loss_cls)
-print(loss_unconfidence)
+
+yolo_metric_box = YoloMetricBox()
+yolo_metric_confidence = YoloMetricConfidence()
+yolo_metric_unconfidence = YoloMetricUnConfidence()
+yolo_metric_classes = YoloMetricClasses()
+
+mae_box = yolo_metric_box.mae_anchorbox_gtbox(liable_anchors_list, num_classes=num_classes)
+mae_confidence = yolo_metric_confidence.mae_confidence(liable_anchors_list, num_classes=num_classes)
+mae_unconfidence = yolo_metric_unconfidence.mae_unconfidence(unliable_anchors)
+mae_classes = yolo_metric_classes.classes_info(liable_anchors_list, num_classes=num_classes)
+print()
+print(mae_box)
+print(mae_confidence)
+print(mae_unconfidence)
+print(mae_classes)
+
 
 

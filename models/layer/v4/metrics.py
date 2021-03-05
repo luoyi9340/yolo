@@ -49,24 +49,34 @@ class YoloMetricBox(tf.keras.metrics.Metric):
         pass
     
     #    计算anchors的还原的box与gt_box各个坐标的MAE
-    def mae_anchorbox_gtbox(self, liable_anchors, num_classes=len(alphabet.ALPHABET)):
+    def mae_anchorbox_gtbox(self, liable_anchors_list, num_classes=len(alphabet.ALPHABET)):
         '''
-            @param liable_anchors: list [(liable_anchors ... batch_size ...]
-                                    liable_anchors: tensor(物体个数, num_classes + 7 + 6)
-                                                                num_classes: 每个分类得分
-                                                                7: anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, anchor的[xl,yl, xr,yr]
-                                                                6: gt的[xl,yl, xr,yr, relative_area, idxV]
+            @param liable_anchors_list: list([ ... batch_size个 ...])
+                                            list([... num_object个 ...])
+                                                tensor(num_liable, num_classes + 7 + 6)
+                                                        num_liable: 每个物体所在的cell中负责检测的anchor数，每个物体负责检测的anchor数量可能不一样
+                                                        num_classes: 各个分类得分
+                                                        7: anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, anchor的[xl,yl, xr,yr]
+                                                        6: gt的[xl,yl, xr,yr, relative_area, idxV]
         '''
         mae = []
         #    取anchor的[xl,yl, xr,yr]
-        for anchors in liable_anchors:
-            #    都是tensor(num_object, 4)
-            anchor_boxes = anchors[:, num_classes+3:num_classes+7]
-            gt_boxes = anchors[:, num_classes+7:num_classes+11]
-            #    计算两个box各个坐标的mae tensor(num_object, 4)
-            mae_boxes = tf.math.abs(anchor_boxes - gt_boxes)
-            mae_boxes = tf.math.reduce_mean(mae_boxes, axis=0)
-            mae.append(mae_boxes)
+        for liable_anchors_every_cell in liable_anchors_list:
+            #    liable_anchors_every_cell list([... num_object个 ...])
+            mae_all_cell = tf.convert_to_tensor(0, dtype=tf.float32)
+            count_anchors = tf.convert_to_tensor(0, dtype=tf.float32)
+            for liable_anchors in liable_anchors_every_cell:
+                #    都是tensor(num_liable, 4)
+                anchor_boxes = liable_anchors[:, num_classes+3:num_classes+7]
+                gt_boxes = liable_anchors[:, num_classes+7:num_classes+11]
+                #    计算两个box各个坐标的mae tensor(num_object, 4)
+                mae_boxes = tf.math.abs(anchor_boxes - gt_boxes)
+                mae_boxes = tf.math.reduce_sum(mae_boxes, axis=0)
+                mae_all_cell = tf.math.add(mae_all_cell, mae_boxes)
+                count_anchors = tf.math.add(count_anchors, liable_anchors.shape[0])
+                pass
+            
+            mae.append(tf.math.divide(mae_all_cell, count_anchors))
             pass
         return tf.convert_to_tensor(mae)
         
@@ -118,23 +128,31 @@ class YoloMetricConfidence(tf.keras.metrics.Metric):
         pass
     
     #    计算anchors的还原的box与gt_box各个坐标的MAE
-    def mae_confidence(self, liable_anchors, num_classes=len(alphabet.ALPHABET)):
+    def mae_confidence(self, liable_anchors_list, num_classes=len(alphabet.ALPHABET)):
         '''
-            @param liable_anchors: list [(liable_anchors ... batch_size ...]
-                                    liable_anchors: tensor(物体个数, num_classes + 7 + 6)
-                                                                num_classes: 每个分类得分
-                                                                7: anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, anchor的[xl,yl, xr,yr]
-                                                                6: gt的[xl,yl, xr,yr, relative_area, idxV]
+            @param liable_anchors: list([ ... batch_size个 ...])
+                                            list([... num_object个 ...])
+                                                tensor(num_liable, num_classes + 7 + 6)
+                                                        num_liable: 每个物体所在的cell中负责检测的anchor数，每个物体负责检测的anchor数量可能不一样
+                                                        num_classes: 各个分类得分
+                                                        7: anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, anchor的[xl,yl, xr,yr]
+                                                        6: gt的[xl,yl, xr,yr, relative_area, idxV]
         '''
         mae = []
         #    取anchor的[xl,yl, xr,yr]
-        for anchors in liable_anchors:
-            #    都是tensor(num_object, )
-            anchor_confidence = anchors[:, num_classes]
-            gt_confidence = anchors[:, num_classes + 1]
-            mae_boxes = tf.math.abs(anchor_confidence - gt_confidence)
-            mae_boxes = tf.math.reduce_mean(mae_boxes)
-            mae.append(mae_boxes)
+        for liable_anchors_every_cell in liable_anchors_list:
+            #    liable_anchors_every_cell list([... num_object个 ...])
+            mae_all_cell = tf.convert_to_tensor(0, dtype=tf.float32)
+            count_anchors = tf.convert_to_tensor(0, dtype=tf.float32)
+            for liable_anchors in liable_anchors_every_cell:
+                anchor_confidence = liable_anchors[:, num_classes]
+                gt_confidence = liable_anchors[:, num_classes + 1]
+                mae_boxes = tf.math.abs(anchor_confidence - gt_confidence)
+                mae_boxes = tf.math.reduce_sum(mae_boxes)
+                mae_all_cell = tf.math.add(mae_all_cell, mae_boxes)
+                count_anchors = tf.math.add(count_anchors, liable_anchors.shape[0])
+                pass
+            mae.append(tf.math.divide(mae_all_cell, count_anchors))
             pass
         return tf.convert_to_tensor(mae)
         
@@ -245,31 +263,40 @@ class YoloMetricClasses(tf.keras.metrics.Metric):
         self.mae = self.add_weight(name='classes_mae', initializer='zero', dtype=tf.float32)
         pass
     
-    def classes_info(self, liable_anchors, num_classes=len(alphabet.ALPHABET)):
+    def classes_info(self, liable_anchors_list, num_classes=len(alphabet.ALPHABET)):
         '''
-            @param liable_anchors: list [(liable_anchors ... batch_size ...]
-                                    liable_anchors: tensor(物体个数, num_classes + 7 + 6)
-                                                                num_classes: 每个分类得分
-                                                                7: anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, anchor的[xl,yl, xr,yr]
-                                                                6: gt的[xl,yl, xr,yr, relative_area, idxV]
+            @param liable_anchors: list([ ... batch_size个 ...])
+                                            list([... num_object个 ...])
+                                                tensor(num_liable, num_classes + 7 + 6)
+                                                        num_liable: 每个物体所在的cell中负责检测的anchor数，每个物体负责检测的anchor数量可能不一样
+                                                        num_classes: 各个分类得分
+                                                        7: anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, anchor的[xl,yl, xr,yr]
+                                                        6: gt的[xl,yl, xr,yr, relative_area, idxV]
             @return: tensor(num_object, 2)
                         2: T, TP
         '''
         info = []
-        for anchors in liable_anchors:
-            #    取分类得分 tensor(num_object, num_classes)
-            anchors_classes = anchors[:, :num_classes]
-            #    取真实分类 tensor(num_object, )
-            gt_classes = anchors[:, num_classes + 12]
-            #    检测预测分类 tensor(num_object, )
-            anchors_classes = tf.math.argmax(anchors_classes, axis=-1)
-            #    比较anchors_classes 与 gt_classes
-            cls_res = tf.equal(tf.cast(anchors_classes, dtype=tf.int32), 
-                               tf.cast(gt_classes, dtype=tf.int32))
-            T = tf.math.count_nonzero(cls_res)
-            TP = cls_res.shape[0]
+        for liable_anchors_every_cell in liable_anchors_list:
+            #    liable_anchors_every_cell list([... num_object个 ...])
+            T_batch = tf.convert_to_tensor(0, dtype=tf.int64)
+            TP_batch = tf.convert_to_tensor(0, dtype=tf.int64)
+            for liable_anchors in liable_anchors_every_cell:
+                #    取分类得分 tensor(num_liable, num_classes)
+                anchors_classes = liable_anchors[:, :num_classes]
+                #    取真实分类 tensor(num_liable, )
+                gt_classes = liable_anchors[:, num_classes + 12]
+                #    检测预测分类 tensor(num_liable, )
+                anchors_classes = tf.math.argmax(anchors_classes, axis=-1)
+                #    比较anchors_classes 与 gt_classes
+                cls_res = tf.equal(tf.cast(anchors_classes, dtype=tf.int32), 
+                                   tf.cast(gt_classes, dtype=tf.int32))
+                T = tf.math.count_nonzero(cls_res)
+                TP = cls_res.shape[0]
+                T_batch = tf.math.add(T_batch, T)
+                TP_batch = tf.math.add(TP_batch, TP)
+                pass
             
-            info.append(tf.stack([T, TP], axis=-1))
+            info.append(tf.stack([T_batch, TP_batch], axis=-1))
             pass
         return tf.convert_to_tensor(info)
         
