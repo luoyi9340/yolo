@@ -7,8 +7,7 @@ Created on 2021年2月26日
 import data.dataset_cells as ds_cells
 
 
-db = ds_cells.tensor_db()
+db = ds_cells.tensor_db(batch_size=2)
 for x,y in db:
-    print()
-#     print(y)
+    print(y.shape)
     pass

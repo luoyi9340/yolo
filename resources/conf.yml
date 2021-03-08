@@ -68,5 +68,3 @@ v4:
    #   当所有anchor的IoU都小于阈值时，取最大的那个anchor
    threshold_liable_iou: 0.5
    
-      
-   

@@ -157,60 +157,47 @@ class YoloLosses(tf.keras.losses.Loss):
         return loss
     
     #    计算loss_box
-    def loss_box(self, anchors_list, num_classes=len(alphabet.ALPHABET)):
+    def loss_box(self, liable_anchors, num_classes=len(alphabet.ALPHABET)):
         '''
             loss_box = ∑(i∈cell) ∑[j∈anchors] U[i,j] * (2 - Area(GT)) * CIoU(anchor[i,j], GT[i,j])
-            U[i,j] = 1 当第i个cell的第j个anchor负责物体时
-                     0 当第i个cell的第j个anchor不负责物体时
-            Area(GT) = 标注框面积（取值(0,1)，可选的。平衡大框与小框的loss贡献度）
-                        Area(GT) = GT(w) * GT(h)
-                        GT(w) = 标注框相对整图个宽度占比
-                        GT(h) = 标注框相对整图的高度占比
-            anchor[i,j] = 第i个cell中第j个anchor（负责物体检测的anchor）
-                          注：IoU计算时采用归一化后的值计算
-                              anchor[cx,cy]是anchor中心点相对cell左上角坐标的偏移量。[0,1]之间
-                              anchor[w,h]是实际宽高相对整图的占比。(0,1]之间
-            GT[i,j] = 第i个cell中第j个anchor负责检测的物体
-                      注：IoU计算采用归一化后的值计算
-                            GT[x,y]是标注框中心点相对cell左上角坐标的偏移量。[0,1]之间
-                            GT[w,h]是实际宽高相对整图的占比。(0,1]之间
+                        U[i,j] = 1 当第i个cell的第j个anchor负责物体时
+                                 0 当第i个cell的第j个anchor不负责物体时
+                        Area(GT) = 标注框面积（取值(0,1)，可选的。平衡大框与小框的loss贡献度）
+                                    Area(GT) = GT(w) * GT(h)
+                                    GT(w) = 标注框相对整图个宽度占比
+                                    GT(h) = 标注框相对整图的高度占比
+                        anchor[i,j] = 第i个cell中第j个anchor（负责物体检测的anchor）
+                                      注：IoU计算时采用归一化后的值计算
+                                          anchor[cx,cy]是anchor中心点相对cell左上角坐标的偏移量。[0,1]之间
+                                          anchor[w,h]是实际宽高相对整图的占比。(0,1]之间
+                        GT[i,j] = 第i个cell中第j个anchor负责检测的物体
+                                  注：IoU计算采用归一化后的值计算
+                                        GT[x,y]是标注框中心点相对cell左上角坐标的偏移量。[0,1]之间
+                                        GT[w,h]是实际宽高相对整图的占比。(0,1]之间
                             
-            @param anchors_list: list([ ... batch_size个 ...])
-                                    list([... num_object个 ...])
-                                        tensor(num_liable, num_classes + 7 + 6)
-                                                num_liable: 每个物体所在的cell中负责检测的anchor数，每个物体负责检测的anchor数量可能不一样
+            @param liable_anchors RaggedTensor(batch_size, num_object, num_liable, num_classes + 7 + 6)
+                                            batch_size: 图片批量个数
+                                            num_object: 实际物体数，每张图片可能不一样
+                                            num_liable: 负责预测的anchor数，每个物体可能不一样(0,3]
+                                            num_classes + 7 + 6: 分类数 + anchor信息 + gt信息
                                                 num_classes: 各个分类得分
-                                                7: anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, anchor的[xl,yl, xr,yr]
+                                                7: anchor的[xl,yl, xr,yr], anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, 
                                                 6: gt的[xl,yl, xr,yr, relative_area, idxV]
-            @return: tensor(batch_size, 1)
+            @return: Tensor(batch_size, 1)
         '''
-        loss = []
-        #    遍历每一个batch_size的数据，计算loss_box
-        for liable_anchors_every_cell in anchors_list:
-            #    liable_anchors_every_cell list([... num_object个 ...])
-            loss_all_cell = tf.convert_to_tensor(0., dtype=tf.float32)
-            count_anchors = tf.convert_to_tensor(0, dtype=tf.float32)
-            for liable_anchors in liable_anchors_every_cell:
-                #    liable_anchors tensor(num_liable, num_classes + 7 + 6)
-                
-                #    从liable_anchors中取area(GT), CIoU
-                area_gt = liable_anchors[:, num_classes + 7 + 4]        #    tensor(num_liable, )
-                ciou = liable_anchors[:, num_classes + 2]               #    tensor(num_liable, )
-                
-                #    计算loss_box = ∑(i∈cell) ∑[j∈anchors] U[i,j] * (2 - Area(GT)) * CIoU(anchor[i,j], GT[i,j])
-                loss_box = (2 - area_gt) * ciou                         #    tensor(num_liable, 1)
-                loss_box = tf.math.reduce_sum(loss_box)
-                loss_all_cell = tf.math.add(loss_all_cell, loss_box)
-                count_anchors = tf.math.add(count_anchors, liable_anchors.shape[0])
-                pass
-            loss.append(tf.math.divide(loss_all_cell, count_anchors))
-            pass
+        #    取gt相对面积 RaggedTensor(batch_size, num_object(不固定), num_liable(不固定), 1)
+        relative_area = liable_anchors[:, :, :, num_classes + 7 + 4 : num_classes + 7 + 4 + 1]
+        #    取ciou RaggedTensor(batch_size, num_object(不固定), num_liable(不固定), 1)
+        ciou = liable_anchors[:, :, :, num_classes + 6 : num_classes + 6 + 1]
         
-        loss = tf.convert_to_tensor(loss, dtype=tf.float32)
+        #    计算∑(i∈cell) ∑[j∈anchors] U[i,j] * (2 - Area(GT)) * CIoU(anchor[i,j], GT[i,j]) 
+        #    RaggedTensor(batch_size, num_object(不固定), num_liable(不固定), 1)
+        loss = (2 - relative_area) * ciou
+        loss = tf.math.reduce_mean(loss, axis=(1,2,3))
         return loss
     
     #    计算loss_confidence
-    def loss_confidence(self, anchors_list, num_classes=len(alphabet.ALPHABET)):
+    def loss_confidence(self, liable_anchors, num_classes=len(alphabet.ALPHABET)):
         '''loss_confidence负责计算负责预测的anchor的置信度损失（这部分与V3一致）：                            
             loss_confidence = ∑(i∈cells) ∑(j∈anchors) U[i,j] * [c_[i,j] * -log(c[i,j])]
                 U[i,j] = 1 当第i个cell的第j个anchor负责物体时
@@ -219,40 +206,29 @@ class YoloLosses(tf.keras.losses.Loss):
                             c_[i,j] = P(object) * IoU(anchor, box)
                                     = 1 * IoU(anchor, box)        （当anchor负责物体时，P(object)为1）
                 c[i,j] = 第i个cell的第j个anchor预测负责物体的置信度
-            @params anchors: list([ ... batch_size个 ...])
-                                    list([... num_object个 ...])
-                                        tensor(num_liable, num_classes + 7 + 6)
-                                                num_liable: 每个物体所在的cell中负责检测的anchor数，每个物体负责检测的anchor数量可能不一样
+            @params liable_anchors RaggedTensor(batch_size, num_object, num_liable, num_classes + 7 + 6)
+                                            batch_size: 图片批量个数
+                                            num_object: 实际物体数，每张图片可能不一样
+                                            num_liable: 负责预测的anchor数，每个物体可能不一样(0,3]
+                                            num_classes + 7 + 6: 分类数 + anchor信息 + gt信息
                                                 num_classes: 各个分类得分
-                                                7: anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, anchor的[xl,yl, xr,yr]
+                                                7: anchor的[xl,yl, xr,yr], anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, 
                                                 6: gt的[xl,yl, xr,yr, relative_area, idxV]
-            @return: tensor(batch_size, 1)
+            @return: Tensor(batch_size, 1)
         '''
-        #    循环每个batch_size
-        loss = []
-        for liable_anchors_every_cell in anchors_list:
-            #    liable_anchors_every_cell list([... num_object个 ...])
-            loss_all_cell = tf.convert_to_tensor(0., dtype=tf.float32)
-            count_anchors = tf.convert_to_tensor(0, dtype=tf.float32)
-            for liable_anchors in liable_anchors_every_cell:
-                #    liable_anchors tensor(num_liable, num_classes + 7 + 6)
-                
-                #    取置信度预测和置信度标签
-                confidence_prob = liable_anchors[:, num_classes]                                    #    tensor(num_liable, )
-                confidence_true = liable_anchors[:, num_classes + 1]                                #    tensor(num_liable, )
-                #    loss_confidence = ∑(i∈cells) ∑(j∈anchors) U[i,j] * [c_[i,j] * -log(c[i,j])]
-                loss_confidence = confidence_true * (- tf.math.log(confidence_prob))                #    tensor(num_liable, )
-                loss_confidence = tf.math.reduce_sum(loss_confidence)
-                loss_all_cell = tf.math.add(loss_all_cell, loss_confidence)
-                count_anchors = tf.math.add(count_anchors, liable_anchors.shape[0])
-                pass
-            loss.append(tf.math.divide(loss_all_cell, count_anchors))
-            pass
-        loss = tf.convert_to_tensor(loss)
+        #    取预测置信度    RaggedTensor(batch_size, num_object(不固定), num_liable(不固定), 1)
+        confidence_prob = liable_anchors[:, :, :, num_classes + 4 : num_classes + 4 + 1]
+        #    取标记置信度    RaggedTensor(batch_size, num_object(不固定), num_liable(不固定), 1)
+        confidence_true = liable_anchors[:, :, :, num_classes + 5 : num_classes + 5 + 1]
+        
+        #    计算: ∑(i∈cells) ∑(j∈anchors) U[i,j] * [c_[i,j] * -log(c[i,j])]
+        #    RaggedTensor(batch_size, num_object(不固定), num_liable(不固定), 1)
+        loss = confidence_true * -tf.math.log(confidence_prob)
+        loss = tf.math.reduce_mean(loss, axis=(1, 2, 3))
         return loss
     
     #    计算loss_unconfidence
-    def loss_unconfidence(self, anchors):
+    def loss_unconfidence(self, unliable_anchors):
         '''loss_unconfidence负责计算不负责预测anchor的置信度损失：
             loss_unconfidence负责计算不负责预测anchor的置信度损失：
                 loss_unconfidence = ∑(i∈cells) ∑(j∈anchors) Un[i,j] * [(1 - c_[i,j]) * -log(1 - c[i,j])]
@@ -263,24 +239,17 @@ class YoloLosses(tf.keras.losses.Loss):
                                     = 1 * IoU(anchor, box)        （当anchor负责物体时，P(object)为1）
                 c[i,j] = 第i个cell的第j个anchor预测负责物体的置信度
                 注：该项实际是让anchor学习认识背景
-            @params anchors: tensor(batch_size, H, W, num_anchors)
-            @return: tensor(batch_size, 1)
+            @params unliable_anchors: Tensor(batch_size, H, W, num_anchors)
+            @return: Tensor(batch_size, 1)
         '''
-        loss = []
-        #    把batch_size循环掉
-        for anchor in anchors:
-            anchor_liable = tf.gather_nd(anchor, indices=tf.where(anchor > 0))
-            #    loss_unconfidence = ∑(i∈cells) ∑(j∈anchors) Un[i,j] * [(1 - c_[i,j]) * -log(1 - c[i,j])]
-            #    不用纠结标签让他优化到多少了，都是0。(confidence = P(objecg) * IoU P(Object)=0)
-            loss_unconfidence = -tf.math.log(1 - anchor_liable)                 #    
-            loss_unconfidence = tf.reduce_mean(loss_unconfidence)
-            loss.append(loss_unconfidence)
-            pass
-        loss = tf.convert_to_tensor(loss)
+        #    计算: ∑(i∈cells) ∑(j∈anchors) Un[i,j] * [(1 - c_[i,j]) * -log(1 - c[i,j])]
+        #    Tensor(batch_size, H, W, num_anchors)
+        loss = 1 * -tf.math.log(1 - unliable_anchors)
+        loss = tf.math.reduce_mean(loss, axis=(1, 2, 3))
         return loss
     
     #    计算loss_cls
-    def loss_cls(self, anchors_list, num_classes=len(alphabet.ALPHABET)):
+    def loss_cls(self, liable_anchors, num_classes=len(alphabet.ALPHABET)):
         '''loss_cls负责计算负责预测anchor的分类损失：
             loss_cls负责计算负责预测anchor的分类损失：
                 λ[cls] = 1
@@ -289,37 +258,30 @@ class YoloLosses(tf.keras.losses.Loss):
                          0 当第i个cell的第j个anchor不负责物体时
                 p_[i,j,c] = 第i个cell中第j个anchor负责物体的实际从属分类概率（one_hot）
                 p[i,j,c] = 第i个cell中第j个anchor预测物体属于第c类的概率
-            @params anchors_list: list([ ... batch_size个 ...])
-                                    list([... num_object个 ...])
-                                        tensor(num_liable, num_classes + 7 + 6)
-                                                num_liable: 每个物体所在的cell中负责检测的anchor数，每个物体负责检测的anchor数量可能不一样
+            @params liable_anchors RaggedTensor(batch_size, num_object, num_liable, num_classes + 7 + 6)
+                                            batch_size: 图片批量个数
+                                            num_object: 实际物体数，每张图片可能不一样
+                                            num_liable: 负责预测的anchor数，每个物体可能不一样(0,3]
+                                            num_classes + 7 + 6: 分类数 + anchor信息 + gt信息
                                                 num_classes: 各个分类得分
-                                                7: anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, anchor的[xl,yl, xr,yr]
+                                                7: anchor的[xl,yl, xr,yr], anchor置信度预测，anchor的置信度标记，anchor与gt的CIoU, 
                                                 6: gt的[xl,yl, xr,yr, relative_area, idxV]
-            @return: tensor(batch_size, 1)
+            @return: Tensor(batch_size, 1)
         '''
-                #    循环每个batch_size
-        loss = []
-        for liable_anchors_every_cell in anchors_list:
-            #    liable_anchors_every_cell list([... num_object个 ...])
-            loss_all_cell = tf.convert_to_tensor(0, dtype=tf.float32)
-            count_anchors = tf.convert_to_tensor(0, dtype=tf.float32)
-            for liable_anchors in liable_anchors_every_cell:
-                #    取分类预测 tensor(num_liable, num_classes)
-                cls_prob = liable_anchors[:, :num_classes]
-                #    取真实分类索引 tensor(num_liable, )
-                cls_true = tf.cast(liable_anchors[:, num_classes + 7 + 5], dtype=tf.int64)      #    tensor(num_liable, )
-                cls_true = tf.one_hot(cls_true, num_classes)                                    #    tensor(num_liable, num_classes)
-                
-                #    loss_cls = ∑(i∈cells) ∑(j∈anchors) ∑(c∈类别集合) U[i,j] * [p_[i,j,c] * -log(p[i,j,c]) + (1 - p_[i,j,c]) * -log(1 - p[i,j,c])]
-                loss_cls = cls_true * -tf.math.log(cls_prob) + (1 - cls_true) * -tf.math.log(1 - cls_prob)      #    tensor(num_liable, num_classes)
-                loss_confidence = tf.math.reduce_sum(loss_cls)                                         #    tensor(num_liable, )
-                loss_all_cell = tf.math.add(loss_all_cell, loss_confidence)
-                count_anchors = tf.math.add(count_anchors, liable_anchors.shape[0] * num_classes)
-                pass
-            loss.append(tf.math.divide(loss_all_cell, count_anchors))
-            pass
-        loss = tf.convert_to_tensor(loss)
+        #    取预测的分类得分    RaggedTensor(batch_size, num_object, num_liable, num_classes)
+        cls_prob = liable_anchors[:, :, :, :num_classes]
+        cls_prob = tf.expand_dims(cls_prob, axis=-2)        #    下面one_hot会增加1个维度，这里先补对齐
+        #    取标记的分类得分    RaggedTensor(batch_size, num_object, num_liable, num_classes)
+        cls_true = liable_anchors[:, :, :, num_classes + 7 + 5 : num_classes + 7 + 6]
+        cls_true = tf.cast(cls_true, dtype=tf.int32)
+        cls_true = tf.one_hot(cls_true, depth=num_classes)
+        
+        #    计算: ∑(i∈cells) ∑(j∈anchors) ∑(c∈类别集合) U[i,j] * [p_[i,j,c] * -log(p[i,j,c]) + (1 - p_[i,j,c]) * -log(1 - p[i,j,c])]
+        #    RaggedTensor(batch_size, num_object, num_liable, num_classes)
+        loss = cls_true * -tf.math.log(cls_prob) + (1 - cls_true) * -tf.math.log(1 - cls_prob)
+        #    RaggedTensor(batch_size, num_object, num_liable)
+        loss = tf.math.reduce_sum(loss, axis=-1)
+        loss = tf.math.reduce_mean(loss, axis=(1, 2))
         loss = tf.squeeze(loss)
         return loss
     pass

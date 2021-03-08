@@ -145,17 +145,27 @@ class ProcessConcatUpSample(tf.keras.layers.Layer):
         self._output_shape = output_shape
         
         #    输入1
-        self._branch1 = tf.keras.models.Sequential(name=name + '_branch1')
-        self._branch1.add(Conv2DNormActive(name=name + '_conv11_branch1',
-                                           kernel_size=[1,1],
-                                           filters=filters_conv1,
-                                           strides=1,
-                                           padding='VALID',
-                                           input_shape=input_shape1))
-        self._branch1.add(UpSampling(name=name + '_upsmapling',
-                                     op_type=UpSamplingOpType.BiLinearInterpolation,
-                                     input_shape=(input_shape1[0], input_shape1[1], filters_conv1),
-                                     output_shape=(output_shape[0], output_shape[1], filters_conv1)))
+#         self._branch1 = tf.keras.models.Sequential(name=name + '_branch1')
+#         self._branch1.add(Conv2DNormActive(name=name + '_conv11_branch1',
+#                                            kernel_size=[1,1],
+#                                            filters=filters_conv1,
+#                                            strides=1,
+#                                            padding='VALID',
+#                                            input_shape=input_shape1))
+#         self._branch1.add(UpSampling(name=name + '_upsmapling',
+#                                      op_type=UpSamplingOpType.BiLinearInterpolation,
+#                                      input_shape=(input_shape1[0], input_shape1[1], filters_conv1),
+#                                      output_shape=(output_shape[0], output_shape[1], filters_conv1)))
+        self._branch1_conv = Conv2DNormActive(name=name + '_conv11_branch1',
+                                              kernel_size=[1,1],
+                                              filters=filters_conv1,
+                                              strides=1,
+                                              padding='VALID',
+                                              input_shape=input_shape1)
+        self._branch1_upsample = UpSampling(name=name + '_upsmapling',
+                                            op_type=UpSamplingOpType.BiLinearInterpolation,
+                                            input_shape=(input_shape1[0], input_shape1[1], filters_conv1),
+                                            output_shape=(output_shape[0], output_shape[1], filters_conv1))
         
         #    一连串Conv
         self._series_conv = SeriesConv2D(name=name + '_SeriesConv2D',
@@ -172,7 +182,9 @@ class ProcessConcatUpSample(tf.keras.layers.Layer):
             raise Exception(self.name + " input_shape2:" + str(self._input_shape2) + " not equal x:" + str(x2.shape))           
         
         #    x1过分支1
-        x1 = self._branch1(x1)
+#         x1 = self._branch1(x1)
+        x1 = self._branch1_conv(x1)
+        x1 = self._branch1_upsample(x1)
 
         #    结果与x2叠加
         y = tf.concat([x1, x2], axis=-1)

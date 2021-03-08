@@ -505,7 +505,7 @@ def cells_iterator(img_dir=conf.DATASET_CELLS.get_in_train(),
                         cell = [idxH, idxW, gt_x, gt_y, gt_w, gt_h, gt_idxV] + anchors
                         y_scale.append(cell)
                         pass
-                    #    如果y_scale的长度不足6，则补全-1数据
+                    #   如果y_scale的长度不足6，则补全-1数据
                     if (len(y_scale) < 6): 
                         for _ in range(6 - len(y_scale)):
                             y_scale.append(cell_empty)
@@ -513,7 +513,7 @@ def cells_iterator(img_dir=conf.DATASET_CELLS.get_in_train(),
                         pass
                     y.append(y_scale)
                     pass
-                y = np.array(y, dtype=np.float64)
+                y = np.array(y, dtype=np.float32)
                 if (y_preprocess): y = y_preprocess(y)
                 
                 yield x, y
@@ -533,17 +533,20 @@ def tensor_db(img_dir=conf.DATASET_CELLS.get_in_train(),
               epochs=conf.DATASET_CELLS.get_epochs(),
               shuffle_buffer_rate=conf.DATASET_CELLS.get_shuffle_buffer_rate(),
               x_preprocess=lambda x:((x / 255.) - 0.5) * 2,
-              y_preprocess=None):
-    x_shape = tf.TensorShape([conf.IMAGE_HEIGHT, conf.IMAGE_WEIGHT, 3])
-    y_shape = tf.TensorShape([len(conf.DATASET_CELLS.get_scales_set()), 6, 2 + 5 + conf.DATASET_CELLS.get_anchors_set().shape[1] * 3])
+              y_preprocess=None,
+              num_scales = len(conf.DATASET_CELLS.get_scales_set()),
+              num_anchors = conf.DATASET_CELLS.get_anchors_set().shape[1]):
     db = tf.data.Dataset.from_generator(generator=lambda :cells_iterator(img_dir=img_dir,
                                                                          label_path=label_path,
                                                                          is_label_mutiple=is_label_mutiple,
                                                                          count=count,
                                                                          x_preprocess=x_preprocess,
                                                                          y_preprocess=y_preprocess), 
-                                        output_types=(tf.float32, tf.float64), 
-                                        output_shapes=(x_shape, y_shape))
+                                        output_signature=(
+                                                tf.TensorSpec(shape=(conf.IMAGE_HEIGHT, conf.IMAGE_WEIGHT, 3), dtype=tf.float32),
+                                                tf.TensorSpec(shape=(num_scales, 6, 2 + 5 + num_anchors * 3), dtype=tf.float32)
+                                            )
+                                        )
     if (shuffle_buffer_rate > 0): db = db.shuffle(buffer_size=shuffle_buffer_rate * batch_size)
     if (batch_size): db = db.batch(batch_size)
     if (epochs): db = db.repeat(epochs)

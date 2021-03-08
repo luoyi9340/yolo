@@ -12,8 +12,6 @@ np.set_printoptions(suppress=True)
 
 from models.layer.v4.metrics import YoloMetricBox, YoloMetricConfidence, YoloMetricUnConfidence, YoloMetricClasses
 from models.layer.v4.preprocess import takeout_liable_cells, takeout_liable_anchors, takeout_unliable_anchors
-from models.layer.v4.preprocess import get_gt_from_y, restore_box, get_liable_anchors
-from utils.iou import ciou_b_n21_tf
 
 
 #    模拟数据
@@ -45,7 +43,7 @@ print('\ny_true')
 print(y_true)
  
 #    拿负责预测的cell和负责预测的cell对应的y_true信息
-liable_cells, y_true_liable = takeout_liable_cells(yolohard, y_true)
+liable_cells, y_true_liable, num_object = takeout_liable_cells(yolohard, y_true)
 print('\n负责预测的cell')
 print(liable_cells)
 print('\n负责预测的cell对应的y_true')
