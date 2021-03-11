@@ -459,6 +459,7 @@ def cells_iterator(img_dir=conf.DATASET_CELLS.get_in_train(),
                    count=conf.DATASET_CELLS.get_count_train(),
                    x_preprocess=lambda x:((x / 255.) - 0.5) * 2,                #    默认图片矩阵归一化到[-1,1]之间
                    y_preprocess=None,
+                   max_objects=conf.V4.get_max_objects(),
                    ):
     #    取所有的标签文件名
     label_files = get_fpaths(is_mutiple_file=is_label_mutiple, file_path=label_path)
@@ -505,9 +506,9 @@ def cells_iterator(img_dir=conf.DATASET_CELLS.get_in_train(),
                         cell = [idxH, idxW, gt_x, gt_y, gt_w, gt_h, gt_idxV] + anchors
                         y_scale.append(cell)
                         pass
-                    #   如果y_scale的长度不足6，则补全-1数据
-                    if (len(y_scale) < 6): 
-                        for _ in range(6 - len(y_scale)):
+                    #   如果y_scale的长度不足max_objects，则补全-1数据
+                    if (len(y_scale) < max_objects): 
+                        for _ in range(max_objects - len(y_scale)):
                             y_scale.append(cell_empty)
                             pass
                         pass
@@ -536,16 +537,16 @@ def tensor_db(img_dir=conf.DATASET_CELLS.get_in_train(),
               y_preprocess=None,
               num_scales = len(conf.DATASET_CELLS.get_scales_set()),
               num_anchors = conf.DATASET_CELLS.get_anchors_set().shape[1]):
+    x_shape = tf.TensorShape([conf.IMAGE_HEIGHT, conf.IMAGE_WEIGHT, 3])
+    y_shape = tf.TensorShape([num_scales, 6, 2 + 5 + num_anchors * 3])
     db = tf.data.Dataset.from_generator(generator=lambda :cells_iterator(img_dir=img_dir,
                                                                          label_path=label_path,
                                                                          is_label_mutiple=is_label_mutiple,
                                                                          count=count,
                                                                          x_preprocess=x_preprocess,
                                                                          y_preprocess=y_preprocess), 
-                                        output_signature=(
-                                                tf.TensorSpec(shape=(conf.IMAGE_HEIGHT, conf.IMAGE_WEIGHT, 3), dtype=tf.float32),
-                                                tf.TensorSpec(shape=(num_scales, 6, 2 + 5 + num_anchors * 3), dtype=tf.float32)
-                                            )
+                                        output_types=(tf.float32, tf.float32),
+                                        output_shapes=(x_shape, y_shape)
                                         )
     if (shuffle_buffer_rate > 0): db = db.shuffle(buffer_size=shuffle_buffer_rate * batch_size)
     if (batch_size): db = db.batch(batch_size)

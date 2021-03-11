@@ -1,0 +1,280 @@
+YOLO V4 tiny
+
+相对于YOLO V4的简化版
+	- 只有2支输出 (v4有3支)
+	- 去掉SPP层
+	- 激活函数改为LeakyReLU
+	- 相比于YOLO V4参数减少了近10倍
+	- 感觉残差结构也被去掉了，只保留了堆叠
+	
+
+网络结构：
+	输入：(416 * 416 * 3)
+	---------- layer 1 ----------
+	Conv: [3 * 3 * 32] strides=2 padding=1 norm=BN active=LeakyReLU out=[208 * 208 * 32]
+	Conv: [3 * 3 * 64] strides=2 padding=1 norm=BN active=LeakyReLU out=[104 * 104 * 64]
+	---------- layer 2 ----------
+	CSPBlock: [filters=128] out=[52 * 52 * 128]
+	---------- layer 3 ----------
+	CSPBlock: [filters=256] out=[26 * 26 * 256]
+	---------- layer 4 ----------
+	CSPBlock: [filters=512] out=[13 * 13 * 512]
+	---------- layer 5 ----------
+	Conv: [3 * 3 * 512] strides=1 padding=1 norm=BN active=LeakyReLU out=[13 * 13 * 512]
+	Conv: [1 * 1 * 256] strides=1 padding=0 norm=BN active=LeakyReLU out=[13 * 13 * 256]
+	记录：branch2 = [13 * 13 * 256]
+	Conv: [3 * 3 * 512] strides=1 padding=1 norm=BN active=LeakyReLU out=[13 * 13 * 512]
+	Conv: [1 * 1 * num_anchors*num_classes+5] strides=1 padding=1 out=[13 * 13 * num_anchors*num_classes+5]
+	记录：yolohard1 = [13 * 13 * num_anchors*num_classes+5]
+	---------- layer 6 ----------
+	CSPUpSampleBlock: [filters=256] in=[branch1, branch2] out=[26 * 26 * 256]
+	Conv: [1 * 1 * num_anchors*num_classes+5] strides=1 padding=0 out=[26 * 26 * num_anchors*num_classes+5]
+	记录：yolohard2 = [26 * 26 * num_anchors*num_classes+5]
+	2个输出即为YOLO V4-tiny的2个Scale输出
+	(num_anchors*num_classes+5)定义：
+		(num_anchors * num_classes)：对应的分类得分
+		(num_anchors * 1)：预测置信度
+		(num_anchors * 4)：预测的x,y相对cell左上角偏移量，w，h相对特征图宽高
+		
+	CSPBlock块：
+		与V4中的CSPResBLock块类似，区别在这里去掉了残差相加，只保留残差堆叠。也没有重复次数。下采样改为maxpooling实现。分支也改为直接通道维度裁剪
+		输入参数：filters=输出通道数
+		具体结构为：
+			输入: [H * W * C1]
+			------ 3*3卷积核特征整合 ------
+			Conv: [3 * 3 * filters/2] strides=1 padding=1 norm=BN active=LeakyReLU out=[H * W * filters/2]
+			------ 分支 ------
+			part1 = 上层输出 out=[H * W * filters/2]
+			part2 = 裁剪前通道后半部分 out=[H * W * filters/4]
+				part2_p1 = Conv: [3 * 3 * filters/4] in=part2 strides=1 padding=1 norm=BN active=LeakyReLU out=[H * W * filters/4]
+				part2_p2 = Conv: [3 * 3 * filters/4] in=par2_p1 strides=1 padding=1 norm=BN active=LeakyReLU out=[H * W * filters/4]
+				通道维度堆叠part2_p1与part2_p2: out=[H * W * filters/2]
+				part2 = Conv: [3 * 3 * filters/2] in=par2_p1 strides=1 padding=1 norm=BN active=LeakyReLU out=[H * W * filters/2]
+			通道维度堆叠part1与part2L out=[H * W * filters]
+			------ maxpooling ------
+			maxpooling: [2*2] stride=1 padding=0 out=[H/2 * W/2 * filters]
+	
+	CSPUpSampleBlock块：
+		通过上采样整合两部分输入的形状，拼接在一起。不改变通道数
+		输入参数：filters=输出通道数
+		具体结构为：
+			输入：两部分输入
+			------ 分支 ------
+			分支1：输入=branch1 = [2H * 2W * filters]
+			分支2：输入=branch2 = [H * W * filters]
+				Conv: [1 * 1 * C/2] strides=1 padding=0 norm=BN active=LeakyReLU out=[H * W * filters/2]
+				UpSample: out=[2H * 2W * filters/2]
+			Concat: out=[2H * 2W * (filters + filters/2)]
+			Conv: [3 * 3 * filters] strides=1 padding=1 norm=BN active=LeakyReLU out=[2H * 2W * filters]
+	
+			
+	
+	
+损失函数：
+	损失函数与V4完全一致，只不过数据由3个yolohard变成2个
+
+	loss = λ[box] * loss_box
+			+ λ[confidence] * loss_confidence
+			+ λ[unconfidence] * loss_unconfidence
+			+ λ[cls] * loss_cls
+	
+	其中：
+		loss_box负责计算box的位置损失：
+			V3版本的loss_box用xywh各自独立做MSE，但作者认为他们之间并不是相互独立的，框的中心点与宽高确实存在某种关系。
+				所以解决办法是用IoU损失替代MSE损失。有4种函数可选（IoU, GIoU, DIoU, CIoU） 
+				IoU损失：
+					loss_iou = 1 - IoU(A, B)
+					但这样做有问题，当anchor与GT不重叠时，loss的输出永远是1。(原文管这叫滑动梯度)
+				GIoU损失：
+					loss_giou = 1 - IoU(A, B) + |C - A∪B|/|C|（惩罚项）
+					其中：C是包围A，B的最小矩形
+					但实际应用中，在预测和GT不重叠的场景下，预测框会先增大宽高直到接触GT，然后才进入GIoU逻辑。
+					这样做会有大量的时间花在预测框尝试与GT接触上，影响收敛速度
+				DIoU损失：
+					DIoU直接在IoU基础上加上惩罚项，用来标准化两个检测框中心点的标准化距离，这样可以加速收敛
+					loss_diou = 1 - IoU(A, B) + d²(A[cx,cy] - B[cx,cy])/c²
+					其中：d为欧氏距离公式
+						 A[cx,cy]、B[cx,cy]为A，B两个预测框的中心点坐标
+						 c为包围A，B最小矩形的对角线长度
+				CIoU损失：
+					在DIoU的基础上考虑的更加全面：
+						1 重叠面积
+						2 中心距离比
+						3 宽高比
+					loss_ciou = 1 - IoU(A, B) + d²(A[cx,cy] - B[cx,cy])/c² + α * v
+					其中：α * v为宽高比的惩罚项
+						 v = (2/π)² * [arctan(A[w]/B[h]) - arctan(B[w]/B[h])]²
+						 α = v / [(i - IoU) + v]
+						 当A与B的宽高很接近，惩罚项就接近于0
+			λ[box] = 1（配置文件决定）
+			loss_box = ∑(i∈cell) ∑[j∈anchors] U[i,j] * (2 - Area(GT)) * CIoU(anchor[i,j], GT[i,j])
+				U[i,j] = 1 当第i个cell的第j个anchor负责物体时
+		     			 0 当第i个cell的第j个anchor不负责物体时
+		     	Area(GT) = 标注框面积（取值(0,1)，可选的。平衡大框与小框的loss贡献度）
+		     			   Area(GT) = GT(w) * GT(h)
+		     			   GT(w) = 标注框相对整图个宽度占比
+		     			   GT(h) = 标注框相对整图的高度占比
+				anchor[i,j] = 第i个cell中第j个anchor（负责物体检测的anchor）
+							  注：IoU计算时采用归一化后的值计算
+								  anchor[cx,cy]是anchor中心点相对cell左上角坐标的偏移量。[0,1]之间
+								  anchor[w,h]是实际宽高相对整图的占比。(0,1]之间
+				GT[i,j] = 第i个cell中第j个anchor负责检测的物体
+						  注：IoU计算采用归一化后的值计算
+						  	  GT[x,y]是标注框中心点相对cell左上角坐标的偏移量。[0,1]之间
+						  	  GT[w,h]是实际宽高相对整图的占比。(0,1]之间
+			
+		loss_confidence负责计算负责预测的anchor的置信度损失（这部分与V3一致）：
+			λ[confidence] = 1（配置文件决定）
+			loss_confidence = ∑(i∈cells) ∑(j∈anchors) U[i,j] * [c_[i,j] * -log(c[i,j])]
+			U[i,j] = 1 当第i个cell的第j个anchor负责物体时
+					 0 当第i个cell的第j个anchor不负责物体时
+			c_[i,j] = 第i个cell的第j个anchor负责物体的置信度
+						c_[i,j] = P(object) * IoU(anchor, box)
+								= 1 * IoU(anchor, box)		（当anchor负责物体时，P(object)为1）
+			c[i,j] = 第i个cell的第j个anchor预测负责物体的置信度
+		
+		loss_unconfidence负责计算不负责预测anchor的置信度损失：
+			λ[unconfidence] = 0.5（配置文件决定）
+			loss_unconfidence = ∑(i∈cells) ∑(j∈anchors) Un[i,j] * [(1 - c_[i,j]) * -log(1 - c[i,j])]
+			Un[i,j] = 1 当第i个cell的第j个anchor不负责物体时
+					  0 当第i个cell的第j个anchor负责物体时
+			c_[i,j] = 第i个cell的第j个anchor负责物体的置信度
+						c_[i,j] = P(object) * IoU(anchor, box)
+								= 1 * IoU(anchor, box)		（当anchor负责物体时，P(object)为1）
+			c[i,j] = 第i个cell的第j个anchor预测负责物体的置信度
+			注：该项实际是让anchor学习认识背景
+			
+		loss_cls负责计算负责预测anchor的分类损失：
+			λ[cls] = 1
+			loss_cls = ∑(i∈cells) ∑(j∈anchors) ∑(c∈类别集合) U[i,j] * [p_[i,j,c] * -log(p[i,j,c]) + (1 - p_[i,j,c]) * -log(1 - p[i,j,c])]
+			U[i,j] = 1 当第i个cell的第j个anchor负责物体时
+					 0 当第i个cell的第j个anchor不负责物体时
+			p_[i,j,c] = 第i个cell中第j个anchor负责物体的实际从属分类概率（one_hot）
+			p[i,j,c] = 第i个cell中第j个anchor预测物体属于第c类的概率
+			
+			
+训练过程：
+	数据准备：(Total:总样本数，num_classes：总分类数，B：每个cell中anchor总数，num_gt：每个样本包含最大物体数)
+		step1：取N个样本（配置文件决定，N ≤ Total），利用k-means计算其中最具代表的B个anchor的宽高比（B = 9，配置文件决定）
+		step2：B按大小划分为3类，分别代表3种不同尺寸的输出
+				Scale1: Yolo_Hard1: [52 * 52 * (B * (num_classes + 5))]
+				Scale2: Yolo_Hard2: [26 * 26 * (B * (num_classes + 5))]
+				Scale3: Yolo_Hard3: [13 * 13 * (B * (num_classes + 5))]
+		step3：每个cell中的每个anchor（3个）与cell负责的物体计算IoU，取最大的IoU对应的anchor负责该物体检测
+		由此设计y_true：tensor(3, num_gt, 2 + 5 + B*3)
+				维度解释：
+					3: 3种不同的缩放尺度下的cell切分
+						0: 对应52 * 52
+						1: 对应26 * 26
+						2: 对应13 * 13
+					num_gt: 每附图最多的物体数，一般=6
+						不够时用[-1,-1, 5个-1, B*5个-1]填充
+					2 + 5 + B*6: [cell坐标信息] + [标注框xywh] + B个anchor的信息
+						2: cell坐标信息
+							idxH = cell相对特征图的H轴索引
+							idxW = cell相对特征图的W轴索引
+						5: 标注框xywh
+							x = cell负责物体的中心点x坐标相对cell左上点x坐标的偏移（相对特征图）
+							y = cell负责物体的中心点y坐标相对cell左上点y坐标的偏移（相对特征图）
+							w = cell负责物体的宽度与整图宽度占比
+							h = cell负责物体的高度与整图高度占比
+							idxV = cell负责物体的实际分类索引
+						B*3: 每个cell中的anchor信息 (b∈B)
+							c[b] = 第b个anchor与当前cell内物体的IoU
+							w[b] = 第b个anchor的宽度于整图占比
+							h[b] = 第b个anchor的高度于整图占比
+	训练过程：
+		step1：原图reshape为统一大小（比如 N * M）
+		step2：过上述网络结构，拿到特征图。
+				Yolo_Hard1: [52 * 52 * (B * (num_classes + 5))]
+				Yolo_Hard2: [26 * 26 * (B * (num_classes + 5))]
+				Yolo_Hard3: [13 * 13 * (B * (num_classes + 5))]
+				B * (num_classes + 5)解释：
+					B = B个anchor（配置文件决定，每个cell内的anchor数量）
+					num_classes = anchor负责的物体属于每个分类的概率（Sigmoid，因为有1个物体同时属于多个分类的情况）
+					5 = [置信度, d(x), d(y), d(w), d(y)]
+						preb_box(x) = d(x) + cell(x)		（preb_box(x)=相对特征图坐标，cell(x)=cell在特征图中的左上角坐标，d(x)=Sigmoid(dx)）
+						preb_box(y) = d(y) + cell(y)		（preb_box(y)=相对特征图坐标，cell(y)=cell在特征图中的左上角坐标，d(y)=Sigmoid(dy)）
+						preb_box(w) = exp(d(w)) * anchor(w)	（preb_box(w)=相对特征图宽度，anchor(w)=anchor相对特征图宽度）
+						preb_box(h) = exp(d(h)) * anchor(h)	（preb_box(h)=相对特征图高度，anchor(h)=anchor相对特征图高度）
+		step3：计算loss
+				1 过滤掉填充数据
+					取y_true中idxH, idxW >= 0的数据。
+						tensor(3, num, 2 + 5 + B*5)
+				2 取负责的cell
+					根据y_true的idxH，idxW从特征图中取。
+						Scale1: tensor(num, B * (num_classes + 5)) 对应 tensor(0, num, 2 + 5 + B*5)
+						Scale1: tensor(num, B * (num_classes + 5)) 对应 tensor(1, num, 2 + 5 + B*5)
+						Scale1: tensor(num, B * (num_classes + 5)) 对应 tensor(2, num, 2 + 5 + B*5)
+				3 取负责的anchor和不负责的anchor
+					负责的anchor：第2步的B * (num_classes + 5)中每个anchor还原为box
+									preb_box(x) = d(x) + cell(x)
+									preb_box(y) = d(y) + cell(y)
+									preb_box(w) = exp(d(w)) * anchor(w)
+									preb_box(h) = exp(d(h)) * anchor(h)
+								用上面还原出的preb_box与y_true中的GT计算IoU，取最大的anchor记为负责的anchor
+					不负责的anchor：上一步中每个cell中剩下的anchor记为不负责的anchor
+				带入loss公式计算loss。
+				loss = λ[box] * loss_box
+					+ λ[confidence] * loss_confidence
+					+ λ[unconfidence] * loss_unconfidence
+					+ λ[cls] * loss_cls
+				负责的anchor：
+					loss_box = ∑(i∈cell) ∑[j∈anchors] U[i,j] * (2 - Area(GT)) * CIoU(anchor[i,j], GT[i,j])
+					loss_confidence = ∑(i∈cells) ∑(j∈anchors) U[i,j] * [c_[i,j] * -log(c[i,j])]
+					loss_cls = ∑(i∈cells) ∑(j∈anchors) ∑(c∈类别集合) U[i,j] * [p_[i,j,c] * -log(p[i,j,c]) + (1 - p_[i,j,c]) * -log(1 - p[i,j,c])]
+				不负责的anchor：
+					loss_unconfidence = ∑(i∈cells) ∑(j∈anchors) Un[i,j] * [(1 - c_[i,j]) * -log(1 - c[i,j])]
+								
+								
+心血来潮，推到神经网络的梯度传播公式：
+第l层：	U[l] = Z[l-1]*W[l] + B[l]
+		Z[l] = f(U[l])
+	  	梯度：∂L/∂W[l] = ∂L/∂Z[l] * ∂Z[l]/∂U[l] * ∂U[l]/∂W[l] = ∂L/∂Z[l] * f'(U[l]) * Z[l-1]
+	  		  	记：T[l] = ∂L/∂Z[l] * f'(U[l]) 
+	  			=> ∂L/∂W[l] = T[l] * Z[l-1]
+第l-1层：	  U[l-1] = Z[l-2]*W[l-1] + B[l-1]
+		  Z[l-1] = f(U[l-1])
+		梯度：∂L/∂W[l-1] = ∂L/Z[l] * ∂Z[l]/∂U[l] * ∂U[l]/∂Z[l-1] * ∂Z[l-1]/∂U[l-1] * ∂U[l-1]/∂W[l-1]
+						= W[l].T * ∂L/Z[l] * f'(u[l]) * f'(U[l-1]) * Z[l-2]
+						= W[l].T * T[l] * f'(U[l-1]) * Z[l-2]
+				记：T[l-1] = W[l].T * T[l] * f'(U[l-1])
+				=> ∂L/∂W[l-1] = T[l-1] * Z[l-2]
+第l-2层：	U[l-2] = Z[l-3]*W[l-2] + B[l-2]
+		Z[l-2] = f(U[l-2])
+		梯度：∂L/∂W[l-2] = ∂L/Z[l] * ∂Z[l]/∂U[l] * ∂U[l]/∂Z[l-1] * ∂Z[l-1]/∂U[l-1] * ∂U[l-1]/∂Z[l-2] * ∂Z[l-2]/∂U[l-2] * ∂U[l-2]/∂W[l-2] 
+						= W[l-1].T * W[l].T * ∂L/Z[l] * f'(U[l]) * f'(U[l-1]) * f'(U[l-2]) * Z[l-3]
+						= W[l-1].T * W[l].T * T[l] * f'(U[l-1]) * f'(U[l-2]) * Z[l-3]
+						= W[l-1].T * T[l-1] * f'(U[l-2]) * Z[l-3]
+				记：T[l-2] = W[l-1].T * T[l-1] * f'(U[l-2])
+				=> ∂L/∂W[l-2] = T[l-2] * Z[l-3]
+				   ∂L/∂Z[l-2] = W[l-1].T * T[l-1]
+				   
+含有残差的情况：
+第l-n层：	U[l-n] = Z[l-n-1]*W[l-n] + B[l-n]
+		Z[l-n] = f(U[l-n]) + Z[l-n-1]
+		梯度：∂L/∂W[l-n] = T[l-n] * Z[l-n-1]
+						= W[l-n+1].T * T[l-n+1] * f'(U[l-n]) * Z[l-n-1]
+			 ∂L/∂Z[l-n] = W[l-n+1].T * T[l-n+1]
+			 T[l-n] = W[l-n+1].T * T[l-n+1] * f'(U[l-n])
+			 => ∂L/∂W[l-n] = T[l-n] * * Z[l-n-1]
+
+后一层含有残差对前一层的影响：
+第l-n-1层：
+		U[l-n-1] = Z[l-n-2]*W[l-n-1] + B[l-n-1]
+		Z[l-n-1] = f(U[l-n-1])
+		梯度：∂L/∂Z[l-n-1] = ∂L/∂Z[l-n] * ∂Z[l-n]/∂Z[l-n-1]
+						  = ∂L/∂Z[l-n] * (f'(U[l-n]) * ∂U[l-n]/∂Z[l-n-1] + 1)
+						  = ∂L/∂Z[l-n] * (f'(U[l-n]) * W[l-n-1].T + 1)
+						  = W[l-n-1].T * ∂L/∂Z[l-n] * f'(U[l-n]) + ∂L/∂Z[l-n]
+						  = W[l-n-1].T * T[l-n] + ∂L/∂Z[l-n]
+			 ∂L/∂W[l-n-1] = ∂L/∂Z[l-n-1] * ∂Z[l-n-1]/∂W[l-n-1]
+			 			  = ∂L/∂Z[l-n-1] * f'(U[l-n-1]) * Z[l-n-2]
+			 			  = (W[l-n-1].T * T[l-n] + ∂L/∂Z[l-n]) * f'(U[l-n-1]) * Z[l-n-2]
+			 			  = T[l-n-1] * Z[l-n-2] + ∂L/∂Z[l-n] * f'(U[l-n-1]) * Z[l-n-2]
+			 记：T[l-n-1] = W[l-n-1].T * T[l-n] * f'(U[l-n-1])
+			 当[l-n]层出现0值时，至少有后面的 ∂L/∂Z[l-n] * f'(U[l-n-1]) * Z[l-n-2] 可以继续传播
+			 而∂L/∂Z[l-n] = W[l-n+1].T * T[l-n+1] 与第l-n层没有关系
+
+
+	

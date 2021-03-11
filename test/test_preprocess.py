@@ -10,9 +10,8 @@ import numpy as np
 #    print时不用科学计数法表示
 np.set_printoptions(suppress=True) 
 
-import models.layer.v4.preprocess as pp
+import models.layer.v4_tiny.preprocess as pp
 import data.dataset_cells as ds_cells
-from utils.iou import iou_n2n_tf_ragged
 
 
 batch_size=4
@@ -27,19 +26,17 @@ for x,y in db:
     break
     pass
 
-
-
 num_scales, num_anchors, num_classes, H,W = 3, 3, 1, 6,15
 threshold_liable_iou = 0.25
+
 yolohard = tf.random.uniform(shape=(batch_size, H, W, num_anchors, num_classes + 5))
 
+#    取负责预测的anchors信息
+liable_anchors, liable_sum_objects = pp.takeout_liables(yolohard=yolohard, y_true=y_true, num_anchors=num_anchors, batch_size=batch_size, num_classes=num_classes)
+print(liable_anchors.shape, liable_sum_objects)
 
-liable_cells, y_true_liables, num_objects = pp.takeout_liable_cells(yolohard, y_true, batch_size)
-liable_anchors = pp.takeout_liable_anchors(liable_cells, 
-                                           y_true_liables, 
-                                           fmaps_shape=[6, 15], 
-                                           num_classes=num_classes, 
-                                           num_anchors=num_anchors, 
-                                           threshold_liable_iou=threshold_liable_iou)
+#    取不负责预测的anchors信息
+unliable_anchors, unliable_sum_objects = pp.takeout_unliables(yolohard=yolohard, y_true=y_true, batch_size=batch_size, num_anchors=num_anchors, num_classes=num_classes)
+print(unliable_anchors.shape, unliable_sum_objects)
 
 

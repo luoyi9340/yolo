@@ -102,7 +102,7 @@ class YoloV4Layer(tf.keras.layers.Layer):
         pass
     
     #    装载网络
-    def _assembling(self, net=None):
+    def _assembling(self):
         #    ---------- layer 1 ----------
         #    Conv: [3 * 3 * 32] strides=1 padding=1 norm=BN active=Mish out=[180 * 480 * 32]
         self._layer1 = Conv2DNormActive(name='layer1',
@@ -249,7 +249,7 @@ class YoloV4Layer(tf.keras.layers.Layer):
         
         #    寄存3个yolohard输出
         self._yolo_hard_register_layer(x=x, yolohard1=yolo_hard1, yolohard2=yolo_hard2, yolohard3=yolo_hard3)
-        return x
+        return yolo_hard3
     pass
 
 

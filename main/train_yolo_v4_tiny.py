@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-  
 '''
-训练yolo_v4版本
+训练yolo v4 tiny版本
 
 @author: luoyi
-Created on 2021年3月2日
+Created on 2021年3月10日
 '''
 import sys
 import os
@@ -18,9 +18,8 @@ import utils.alphabet as alphabet
 
 import data.dataset_cells as ds_cells
 
-import models.yolo_v4 as yolo
+import models.yolo_v4_tiny as yolo
 
-from models.layer.commons.part import YoloHardRegister, AnchorsRegister
 from math import ceil
 
 
@@ -57,30 +56,33 @@ log.info('init dataset val... ')
 
 
 #    初始化模型
-yolo_v4  =yolo.YoloV4(learning_rate=conf.V4.get_learning_rate(), 
-                      loss_lamda_box=conf.V4.get_loss_lamda_box(),
-                      loss_lamda_confidence=conf.V4.get_loss_lamda_confidence(),
-                      loss_lamda_unconfidence=conf.V4.get_loss_lamda_unconfidence(),
-                      loss_lamda_cls=conf.V4.get_loss_lamda_cls(),
-                      num_anchors=conf.DATASET_CELLS.get_anchors_set().shape[1],
-                      num_classes=len(alphabet.ALPHABET),
-                      yolohard_register=YoloHardRegister.instance(),
-                      anchors_register=AnchorsRegister.instance(),)
+yolo_v4_tiny  =yolo.YoloV4Tiny(learning_rate=conf.V4.get_learning_rate(), 
+                               loss_lamda_box=conf.V4.get_loss_lamda_box(),
+                               loss_lamda_confidence=conf.V4.get_loss_lamda_confidence(),
+                               loss_lamda_unconfidence=conf.V4.get_loss_lamda_unconfidence(),
+                               loss_lamda_cls=conf.V4.get_loss_lamda_cls(),
+                               num_anchors=conf.DATASET_CELLS.get_anchors_set().shape[1],
+                               num_classes=len(alphabet.ALPHABET))
 log.info('init model yolo_v4...')
-yolo_v4.show_info()
+yolo_v4_tiny.summary()
 
 
 log.info('feed data...')
 steps_per_epoch = ceil(count_train / batch_size)
 #    喂数据
-yolo_v4.train_tensor_db(db_train=db_train, 
-                        db_val=db_val, 
-                        steps_per_epoch=steps_per_epoch, 
-                        batch_size=batch_size, 
-                        epochs=epochs, 
-                        auto_save_weights_after_traind=True, 
-                        auto_save_weights_dir=conf.V4.get_save_weights_dir(), 
-                        auto_learning_rate_schedule=True, 
-                        auto_tensorboard=True, 
-                        auto_tensorboard_dir=conf.V4.get_tensorboard_dir())
+yolo_v4_tiny.train_tensor_db(db_train=db_train, 
+                             db_val=db_val, 
+                             steps_per_epoch=steps_per_epoch, 
+                             batch_size=batch_size, 
+                             epochs=epochs, 
+                             auto_save_weights_after_traind=True, 
+                             auto_save_weights_dir=conf.V4.get_save_weights_dir(), 
+                             auto_learning_rate_schedule=True, 
+                             auto_tensorboard=True, 
+                             auto_tensorboard_dir=conf.V4.get_tensorboard_dir())
+
+
+
+
+
 

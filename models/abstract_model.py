@@ -15,7 +15,7 @@ import utils.conf as conf
 
 
 #    模型类的公共行为
-class AModel(metaclass=abc.ABCMeta):
+class AModel(tf.keras.models.Model):
     '''模型的公共行为
         @method
         - 测试
@@ -27,24 +27,23 @@ class AModel(metaclass=abc.ABCMeta):
         - 评价标准
         - 装备模型
     '''
-    def __init__(self, learning_rate=0.01, name="Model", auto_assembling=True):
-        #    定义网络对象
-        self._net = tf.keras.models.Sequential(name=name)
+    def __init__(self, learning_rate=0.01, name="Model", auto_assembling=True, **kwargs):
+        super(AModel, self).__init__(name=name, **kwargs)
         
-        self.name = name
+        self._name = name
         self.__learning_rate=learning_rate
         
         if (auto_assembling):
             #    装配网络模型
-            self.assembling(self._net)
+            self.assembling()
             #    初始化优化器，损失，评价
-            self._optimizer = self.optimizer(net=self._net, learning_rate=learning_rate)
-            self._loss = self.loss()
-            self._metrics = self.metrics()
+            self._optimizer = self.create_optimizer(learning_rate=learning_rate)
+            self._loss = self.create_loss()
+            self._metrics = self.create_metrics()
             #    编译网络
-            self._net.compile(optimizer=self._optimizer, 
-                              loss=self._loss, 
-                              metrics=self._metrics)
+            self.compile(optimizer=self._optimizer, 
+                         loss=self._loss, 
+                         metrics=self._metrics)
             pass
         pass
     
@@ -58,7 +57,7 @@ class AModel(metaclass=abc.ABCMeta):
             @param verbose: 默认日志级别（0为不在标准输出流输出日志信息，1为输出进度条记录，2为每个epoch输出一行记录）
             @return: 每个测试数据的最终分类索引
         '''
-        pred = self._net.predict(X_test, batch_size=batch_size, verbose=verbose)
+        pred = self.predict(X_test, batch_size=batch_size, verbose=verbose)
         pred = np.argmax(pred, axis=1)
         return pred
     
@@ -80,7 +79,7 @@ class AModel(metaclass=abc.ABCMeta):
         '''保存模型参数
             @param filepath: 保存文件路径（建议文件以.ckpt为后缀）
         '''
-        self._net.save_weights(filepath, overwrite=True, save_format="h5")
+        self.save_weights(filepath, overwrite=True, save_format="h5")
         pass
     
     #    加载模型参数
@@ -88,7 +87,7 @@ class AModel(metaclass=abc.ABCMeta):
         '''加载模型参数
             @param filepath: 加载模型路径
         '''
-        self._net.load_weights(filepath)
+        self.load_weights(filepath)
         pass
     
     
@@ -122,20 +121,13 @@ class AModel(metaclass=abc.ABCMeta):
                                    auto_tensorboard, auto_tensorboard_dir,
                                    batch_size=batch_size)
         
-        his = self._net.fit_generator(db_train, 
-                                      validation_data=db_val,
-                                      steps_per_epoch=steps_per_epoch, 
-                                      epochs=epochs, 
-                                      verbose=1, 
-                                      callbacks=callbacks,
-                                      shuffle=False)
-#         his = self._net.fit(x=db_train,
-#                                 validation_data=db_val, 
-#                                 batch_size=batch_size, 
-#                                 verbose=1, 
-#                                 epochs=epochs,
-#                                 callbacks=callbacks,
-#                                 shuffle=False)
+        his = self.fit_generator(db_train, 
+                                 validation_data=db_val,
+                                 steps_per_epoch=steps_per_epoch, 
+                                 epochs=epochs, 
+                                 verbose=1, 
+                                 callbacks=callbacks,
+                                 shuffle=False)
         return his
     #    训练模型
     def train(self, X_train, Y_train,
@@ -167,13 +159,13 @@ class AModel(metaclass=abc.ABCMeta):
                                    auto_learning_rate_schedule, 
                                    auto_tensorboard, auto_tensorboard_dir, batch_size=batch_size)
         
-        his = self._net.fit(x=X_train, y=Y_train,
-                                batch_size=batch_size, 
-                                epochs=epochs, 
-                                verbose=1, 
-                                validation_data=(X_val, Y_val),
-                                callbacks=callbacks,
-                                shuffle=False)
+        his = self.fit(x=X_train, y=Y_train,
+                       batch_size=batch_size, 
+                       epochs=epochs, 
+                       verbose=1, 
+                       validation_data=(X_val, Y_val),
+                       callbacks=callbacks,
+                       shuffle=False)
         return his
 
     #    模型回调
@@ -257,7 +249,7 @@ class AModel(metaclass=abc.ABCMeta):
 
     #    打印模型信息
     def show_info(self):
-        self._net.summary()
+        self.summary()
         pass
 
     '''以下是抽象方法定义
@@ -265,20 +257,25 @@ class AModel(metaclass=abc.ABCMeta):
     '''
     #    子类必须指明梯度更新方式
     @abc.abstractclassmethod
-    def optimizer(self, net, learning_rate=0.9):
-        pass
+    def create_optimizer(self, learning_rate=0.9):
+        raise Exception('subclass must implement.')
     #    子类必须指明损失函数
     @abc.abstractclassmethod
-    def loss(self):
-        pass
+    def create_loss(self):
+        raise Exception('subclass must implement.')
     #    子类必须指明评价方式
     @abc.abstractclassmethod
-    def metrics(self):
-        pass
+    def create_metrics(self):
+        raise Exception('subclass must implement.')
     #    装配模型
     @abc.abstractclassmethod
     def assembling(self, net):
-        pass
+        raise Exception('subclass must implement.')
+    
+    #    前向传播
+    def call(self, inputs, training=None, mask=None):
+        return tf.keras.models.Model.call(self, inputs, training=training, mask=mask)
+    
     #    模型名称
     def model_name(self):
         return self.name

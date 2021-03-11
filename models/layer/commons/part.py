@@ -55,6 +55,7 @@ from enum import Enum
 import threading
 
 import tensorflow as tf
+import utils.conf as conf
 from math import ceil, floor
 
 
@@ -88,6 +89,8 @@ class Conv2DNormActive(tf.keras.layers.Layer):
                  padding='VALID',
                  input_shape=None,
                  output_shape=None,
+                 norm=None,
+                 active=None,
                  kernel_initializer=tf.initializers.he_normal(),
                  bias_initializer=tf.initializers.zeros(),
                  **kwargs):
@@ -112,9 +115,11 @@ class Conv2DNormActive(tf.keras.layers.Layer):
                                                kernel_initializer=kernel_initializer,
                                                bias_initializer=bias_initializer))
         #    BN层
-        self._layer.add(tf.keras.layers.BatchNormalization())
+        if (norm is None): norm = tf.keras.layers.BatchNormalization()
+        self._layer.add(norm)
         #    激活层
-        self._layer.add(Mish())
+        if (active is None): active = Mish()
+        self._layer.add(active)
         pass
     
     #    前向
@@ -344,7 +349,7 @@ class UpSampling(tf.keras.layers.Layer):
                  input_shape=None,
                  output_shape=None,
                  **kwargs):
-        super(UpSampling, self).__init__(name=name, dynamic=True, **kwargs)
+        super(UpSampling, self).__init__(name=name, trainable=False, **kwargs)
         
         self._op_type = op_type
         self._strides = strides
@@ -396,7 +401,7 @@ class UpSampling(tf.keras.layers.Layer):
     #    双线性插值
     def bi_linear_interpolation(self, x):
         B = x.shape[0]
-        if (B == None): B = 1
+        if (B == None): B = conf.DATASET_CELLS.get_batch_size()
         
         boxes = tf.repeat(tf.convert_to_tensor([[0,0, 1,1]], dtype=tf.float32), repeats=B, axis=0)
         boxes_idx = tf.range(B)
@@ -573,7 +578,7 @@ class YoloHardRegisterLayer(tf.keras.layers.Layer):
                  name='YoloHardRegisterLayer',
                  yolohard_register=YoloHardRegister.instance(),
                  **kwargs):
-        super(YoloHardRegisterLayer, self).__init__(name=name, dynamic=True, **kwargs)
+        super(YoloHardRegisterLayer, self).__init__(name=name, trainable=False, **kwargs)
         self._yolohard_register = yolohard_register
         
         pass
@@ -589,4 +594,57 @@ class YoloHardRegisterLayer(tf.keras.layers.Layer):
     pass
 
 
+#    最多跑一次原则
+#    暂存yolohard解析出的liable_anchors，liable_num_objects，unliable_anchors, unliable_num_objects
+class AnchorsRegister():
+    '''暂存yolohard解析出来的结果。“最多跑一次”
+        在一个batch中，takeout_liable_cells, takeout_liable_anchors, takeout_unliable_anchors的只跑一次
+    '''
+    _instance_lock = threading.Lock()
+    
+    def __init__(self):
+        pass
+    
+    @classmethod
+    def instance(cls, *args, **kwargs):
+        with AnchorsRegister._instance_lock:
+            if not hasattr(AnchorsRegister, '_instance'):
+                AnchorsRegister._instance = AnchorsRegister(*args, **kwargs)
+            pass
+        return AnchorsRegister._instance
+    
+    
+    #    暂存yolohard1解析结果
+    def deposit_yolohard1(self, liable_anchors1, liable_num_objects1, unliable_anchors1, unliable_num_objects1):
+        self._liable_anchors1 = liable_anchors1
+        self._liable_num_objects1 = liable_num_objects1
+        self._unliable_anchors1 = unliable_anchors1
+        self._unliable_num_objects1 = unliable_num_objects1
+        pass
+    #    取yolohard1的解析结果
+    def get_yolohard1(self):
+        return self._liable_anchors1, self._liable_num_objects1, self._unliable_anchors1, self._unliable_num_objects1
+    
+    #    暂存yolohard2解析结果
+    def deposit_yolohard2(self, liable_anchors2, liable_num_objects2, unliable_anchors2, unliable_num_objects2):
+        self._liable_anchors2 = liable_anchors2
+        self._liable_num_objects2 = liable_num_objects2
+        self._unliable_anchors2 = unliable_anchors2
+        self._unliable_num_objects2 = unliable_num_objects2
+        pass
+    #    取yolohard2的解析结果
+    def get_yolohard2(self):
+        return self._liable_anchors2, self._liable_num_objects2, self._unliable_anchors2, self._unliable_num_objects2
+    
+    #    暂存yolohard3解析结果
+    def deposit_yolohard3(self, liable_anchors3, liable_num_objects3, unliable_anchors3, unliable_num_objects3):
+        self._liable_anchors3 = liable_anchors3
+        self._liable_num_objects3 = liable_num_objects3
+        self._unliable_anchors3 = unliable_anchors3
+        self._unliable_num_objects3 = unliable_num_objects3
+        pass
+    #    取yolohard2的解析结果
+    def get_yolohard3(self):
+        return self._liable_anchors3, self._liable_num_objects3, self._unliable_anchors3, self._unliable_num_objects3
+    pass
 

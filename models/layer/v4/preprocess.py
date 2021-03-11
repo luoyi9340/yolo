@@ -5,11 +5,9 @@
 Created on 2021年2月26日
 '''
 import tensorflow as tf
-import threading
 
 import utils.alphabet as alphabet
 import utils.conf as conf
-from models.layer.commons.part import YoloHardRegister
 from utils.iou import ciou_n2n_tf_ragged, iou_n2n_tf_ragged
 
 
@@ -409,82 +407,3 @@ def takeout_unliable_anchors(y_true,
     unliable_anchors_fmaps = tf.where(idx == 0, yolohard_confidence, tf.zeros_like(yolohard_confidence))
     
     return unliable_anchors_fmaps
-
-
-#    暂存yolohard解析出来的结果
-class AnchorsRegister():
-    '''暂存yolohard解析出来的结果。“最多跑一次”
-        在一个batch中，takeout_liable_cells, takeout_liable_anchors, takeout_unliable_anchors的只跑一次
-    '''
-    _instance_lock = threading.Lock()
-    
-    def __init__(self):
-        pass
-    
-    @classmethod
-    def instance(cls, *args, **kwargs):
-        with AnchorsRegister._instance_lock:
-            if not hasattr(AnchorsRegister, '_instance'):
-                AnchorsRegister._instance = AnchorsRegister(*args, **kwargs)
-            pass
-        return AnchorsRegister._instance
-    
-    #    解析新的结果，并暂存
-    def parse_anchors_and_cache(self, yolohard_register=YoloHardRegister.instance(), y_true=None):
-        #    从yolohard_register中拿yolohard1, yolohard2, yolohard3
-        yolohard1 = yolohard_register.get_yolohard1()               #    (batch_size, 23, 60, num_anchors, num_classes+5)
-        y_true1 = y_true[:, 2, :,:]                                 #    对应scale[2]尺寸，最大尺寸（低层特征感受野较小，适合检测小物体）
-        fmaps_shape1 = (yolohard1.shape[1], yolohard1.shape[2])
-        liable_cells1, y_true_liable1, _ = takeout_liable_cells(yolohard1, y_true1)
-        liable_anchors1 = takeout_liable_anchors(liable_cells1, y_true_liable1, fmaps_shape1)
-        unliable_anchors1 = takeout_unliable_anchors(y_true1, yolohard1)
-        self.cacheYoloHard1(liable_cells1, y_true_liable1, liable_anchors1, unliable_anchors1)
-        
-        yolohard2 = yolohard_register.get_yolohard2()               #    (batch_size, 12, 30, num_anchors, num_classes+5)
-        y_true2 = y_true[:, 1, :,:]                                 #    对应scale[1]尺寸，中等尺寸
-        fmaps_shape2 = (yolohard2.shape[1], yolohard2.shape[2])
-        liable_cells2, y_true_liable2, _ = takeout_liable_cells(yolohard2, y_true2)
-        liable_anchors2 = takeout_liable_anchors(liable_cells2, y_true_liable2, fmaps_shape2)
-        unliable_anchors2 = takeout_unliable_anchors(y_true2, yolohard2)
-        self.cacheYoloHard2(liable_cells2, y_true_liable2, liable_anchors2, unliable_anchors2)
-        
-        yolohard3 = yolohard_register.get_yolohard3()               #    (batch_size, 6,  15, num_anchors, num_classes+5)
-        y_true3 = y_true[:, 0, :,:]                                 #    对应scale[0]尺寸，最小尺寸（高层特征感受野较大，适合检测大物体）
-        fmaps_shape3 = (yolohard3.shape[1], yolohard3.shape[2])
-        liable_cells3, y_true_liable3, _ = takeout_liable_cells(yolohard3, y_true3)
-        liable_anchors3 = takeout_liable_anchors(liable_cells3, y_true_liable3, fmaps_shape3)
-        unliable_anchors3 = takeout_unliable_anchors(y_true3, yolohard3)
-        self.cacheYoloHard3(liable_cells3, y_true_liable3, liable_anchors3, unliable_anchors3)
-        
-        return (liable_anchors1, unliable_anchors1), \
-                (liable_anchors2, unliable_anchors2), \
-                (liable_anchors3, unliable_anchors3)
-    
-    #    暂存yolohard解析结果
-    def cacheYoloHard1(self, liable_cells, y_true_liable, liable_anchors, unliable_anchors):
-        self._liable_cells1 = liable_cells
-        self._y_true_liable1 = y_true_liable
-        self._liable_anchors1 = liable_anchors
-        self._unliable_anchors1 = unliable_anchors
-        pass
-    def cacheYoloHard2(self, liable_cells, y_true_liable, liable_anchors, unliable_anchors):
-        self._liable_cells2 = liable_cells
-        self._y_true_liable2 = y_true_liable
-        self._liable_anchors2 = liable_anchors
-        self._unliable_anchors2 = unliable_anchors
-        pass
-    def cacheYoloHard3(self, liable_cells, y_true_liable, liable_anchors, unliable_anchors):
-        self._liable_cells3 = liable_cells
-        self._y_true_liable3 = y_true_liable
-        self._liable_anchors3 = liable_anchors
-        self._unliable_anchors3 = unliable_anchors
-        pass
-    #    取缓存
-    def get_yolohard1(self):
-        return self._liable_cells1, self._y_true_liable1, self._liable_anchors1, self._unliable_anchors1
-    def get_yolohard2(self):
-        return self._liable_cells2, self._y_true_liable2, self._liable_anchors2, self._unliable_anchors2
-    def get_yolohard3(self):
-        return self._liable_cells3, self._y_true_liable3, self._liable_anchors3, self._unliable_anchors3
-    
-    pass

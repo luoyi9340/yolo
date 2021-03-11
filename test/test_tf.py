@@ -9,19 +9,13 @@ import numpy as np
 #    print时不用科学计数法表示
 np.set_printoptions(suppress=True) 
 
+from models.layer.v4_tiny.preprocess import takeout_liables
+
 print(tf.version.VERSION)
 
 
-class TestLayer(tf.keras.layers.Layer):
-    def __init__(self,
-                 **kwargs):
-        super(TestLayer, self).__init__(**kwargs)
-        pass
-    
-    def call(self, x1=None, x2=None, **kwargs):
-        return x1 + x2
-    pass
-
-tl = TestLayer()
-y = tl(x1=1, x2=2)
-print(y)
+a = tf.range(10)
+a = tf.RaggedTensor.from_row_lengths(a, row_lengths=[4, 6])
+print(a)
+a = tf.math.reduce_mean(a, axis=-1)
+print(a)

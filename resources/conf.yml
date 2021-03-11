@@ -48,7 +48,7 @@ dataset_cells:
    label_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test_cells.jsons
    label_test_mutiple: false
    #   数据集后处理
-   batch_size: 1
+   batch_size: 4
    epochs: 1
    shuffle_buffer_rate: -1
    
@@ -67,4 +67,7 @@ v4:
    #   负责的anchor的IoU阈值，与gt的IoU超过此阈值的anchor都会被判定为负责预测的anchor（所以实际训练中一个cell中负责预测的anchor会不止一个）
    #   当所有anchor的IoU都小于阈值时，取最大的那个anchor
    threshold_liable_iou: 0.5
+   #   数据相关配置
+   #   每张图片最大物体数
+   max_objects: 6
    
