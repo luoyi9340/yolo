@@ -6,7 +6,9 @@ Created on 2021年3月10日
 '''
 import tensorflow as tf
 
+import utils.conf as conf
 import utils.alphabet as alphabet
+import utils.logger_factory as logf
 
 
 #    YoloV4TinyLosses
@@ -18,7 +20,7 @@ class YoloV4BaseLosses(tf.keras.losses.Loss):
         pass
     
     #    loss_boxes
-    def loss_boxes(self, liable_anchors, liable_num_objects, num_classes=len(alphabet.ALPHABET)):
+    def loss_boxes(self, liable_anchors, liable_num_objects, fmaps_shape=None, num_classes=len(alphabet.ALPHABET)):
         '''loss_box = ∑(i∈cell) ∑[j∈anchors] U[i,j] * (2 - Area(GT)) * CIoU(anchor[i,j], GT[i,j])
                         U[i,j] = 1 当第i个cell的第j个anchor负责物体时
                                  0 当第i个cell的第j个anchor不负责物体时
@@ -59,13 +61,16 @@ class YoloV4BaseLosses(tf.keras.losses.Loss):
         #    RaggedTensor(batch_size, num_objects)
         loss = tf.RaggedTensor.from_row_lengths(loss, row_lengths=liable_num_objects)
         loss = tf.math.reduce_mean(loss, axis=-1)
+        
+        tf.print('loss:', loss, ' fmaps_shape:', fmaps_shape, output_stream=logf.get_logger_filepath('losses_v4_box'))
+        
         return loss
     
     
     #    计算loss_confidence
-    def loss_confidence(self, liable_anchors, liable_num_objects, num_classes=len(alphabet.ALPHABET)):
+    def loss_confidence(self, liable_anchors, liable_num_objects, fmaps_shape=None, num_classes=len(alphabet.ALPHABET)):
         '''loss_confidence负责计算负责预测的anchor的置信度损失（这部分与V3一致）：                            
-            loss_confidence = ∑(i∈cells) ∑(j∈anchors) U[i,j] * [c_[i,j] * -log(c[i,j])]
+            loss_confidence = ∑(i∈cells) ∑(j∈anchors) U[i,j] * [c_[i,j] * -log(c[i,j]) + (1 - c_[i,j]) * -log(1 - c[i,j])]
                 U[i,j] = 1 当第i个cell的第j个anchor负责物体时
                          0 当第i个cell的第j个anchor不负责物体时
                 c_[i,j] = 第i个cell的第j个anchor负责物体的置信度
@@ -90,17 +95,23 @@ class YoloV4BaseLosses(tf.keras.losses.Loss):
         #    取掩码        Tensor (sum_object, num_anchors, )
         mask = liable_anchors[:, :, num_classes + 13]
         
-        #    计算：loss_confidence = ∑(i∈cells) ∑(j∈anchors) U[i,j] * [c_[i,j] * -log(c[i,j])]
+        #    计算：loss_confidence = ∑(i∈cells) ∑(j∈anchors) U[i,j] * [c_[i,j] * -log(c[i,j]) + (1 - c_[i,j]) * -log(1 - c[i,j])]
         #    Tensor (sum_object, num_anchors, )
-        loss = mask * confidence_true * -tf.math.log(confidence_prob)
+        loss = mask * \
+                (confidence_true * -tf.math.log(tf.math.maximum(confidence_prob, 1e-15)) + \
+                (1 - confidence_true) * -tf.math.log(tf.math.maximum(1 - confidence_prob, 1e-15)))
         loss = tf.math.reduce_sum(loss, axis=-1)
+#         loss = tf.math.reduce_mean(loss, axis=-1)
         loss = tf.RaggedTensor.from_row_lengths(loss, row_lengths=liable_num_objects)
         loss = tf.math.reduce_mean(loss, axis=-1)
+        
+        tf.print('loss:', loss, ' fmaps_shape:', fmaps_shape, output_stream=logf.get_logger_filepath('losses_v4_confidence'))
+        
         return loss
     
     
     #    计算loss_unconfidence
-    def loss_unconfidence(self, unliable_anchors, unliable_sum_objects):
+    def loss_unconfidence(self, unliable_anchors, unliable_sum_objects, fmaps_shape=None):
         '''loss_unconfidence负责计算不负责预测anchor的置信度损失：
             loss_unconfidence负责计算不负责预测anchor的置信度损失：
                 loss_unconfidence = ∑(i∈cells) ∑(j∈anchors) Un[i,j] * [(1 - c_[i,j]) * -log(1 - c[i,j])]
@@ -120,16 +131,22 @@ class YoloV4BaseLosses(tf.keras.losses.Loss):
         '''
         #    计算loss_unconfidence = ∑(i∈cells) ∑(j∈anchors) Un[i,j] * [(1 - c_[i,j]) * -log(1 - c[i,j])]
         #    Tensor (sum_unliable_cells, num_anchors, )
-        loss = -tf.math.log(unliable_anchors)
+        loss = -tf.math.log(tf.math.maximum(1 - unliable_anchors, 1e-15))
         loss = tf.math.reduce_sum(loss, axis=-1)
+#         loss = tf.math.reduce_mean(loss, axis=-1)
         loss = tf.RaggedTensor.from_row_lengths(loss, row_lengths=unliable_sum_objects)
         loss = tf.math.reduce_mean(loss, axis=-1)
+        
+        tf.print('loss:', loss, ' fmaps_shape:', fmaps_shape, output_stream=logf.get_logger_filepath('losses_v4_unconfidence'))
         
         return loss
     
     
     #    计算loss_cls
-    def loss_cls(self, liable_anchors, liable_num_objects, num_classes=len(alphabet.ALPHABET)):
+    def loss_cls(self, liable_anchors, liable_num_objects, 
+                 fmaps_shape=None, 
+                 num_anchors=conf.DATASET_CELLS.get_anchors_set().shape[1], 
+                 num_classes=len(alphabet.ALPHABET)):
         '''loss_cls负责计算负责预测anchor的分类损失：
             loss_cls负责计算负责预测anchor的分类损失：
                 λ[cls] = 1
@@ -149,21 +166,60 @@ class YoloV4BaseLosses(tf.keras.losses.Loss):
             @param liable_num_objects: Tensor(batch_size,)   每个batch实际含有的物体数，idxBHW第1个维度的划分
             @return: Tensor(batch_size, )
         '''
-        #    取各个分类得分                 Tensor (sum_object, num_anchors, num_classes)
-        cls_prob = liable_anchors[:, :, :num_classes]
-        #    取标记分类索引，并做成one_hot    Tensor (sum_object, num_anchors, num_classes)
-        cls_true = tf.cast(liable_anchors[:, :, num_classes + 7 + 5], dtype=tf.int32)
-        cls_true = tf.one_hot(cls_true, depth=num_classes)
-        #    取掩码    Tensor (sum_object, num_anchors, 1)
+        #    物体总数
+        sum_objects = tf.math.reduce_sum(liable_num_objects)
+        #    取掩码
         mask = liable_anchors[:, :, num_classes + 7 + 6]
-        mask = tf.expand_dims(mask, axis=-1)
-        
-        #    计算: loss_cls = ∑(i∈cells) ∑(j∈anchors) ∑(c∈类别集合) U[i,j] * [p_[i,j,c] * -log(p[i,j,c]) + (1 - p_[i,j,c]) * -log(1 - p[i,j,c])]
-        #    Tensor (sum_object, num_anchors, num_classes)
-        loss = mask * (cls_true * -tf.math.log(cls_prob) + (1 - cls_true) * -tf.math.log(1 - cls_prob))
-        loss = tf.math.reduce_sum(loss, axis=(1, 2))
-        loss = tf.RaggedTensor.from_row_lengths(loss, row_lengths=liable_num_objects)
+
+        #    用多分类交叉熵试一下：
+        #    取各个分类预测得分                 Tensor (sum_object, num_anchors, num_classes)
+        cls_prob = liable_anchors[:, :, :num_classes]
+        #    取标记的分类索引，并转为预测的索引    Tensor (sum_object*num_anchors, 3)
+        cls_true = tf.cast(liable_anchors[:, :, num_classes + 7 + 5], dtype=tf.int32)       #    Tensor(sum_object, num_anchors,)
+        cls_true = tf.expand_dims(cls_true, axis=-1)
+        cls_true = tf.reshape(cls_true, shape=(sum_objects * num_anchors, 1))
+        #    num_anchors维度的索引 [[0,1,2], [0,1,2]...]        Tensor(sum_objects * num_anchors, 1)
+        idx_num_ancors = tf.range(num_anchors, dtype=tf.int32)
+        idx_num_ancors = tf.expand_dims(idx_num_ancors, axis=0)
+        idx_num_ancors = tf.repeat(idx_num_ancors, repeats=sum_objects, axis=0)
+        idx_num_ancors = tf.reshape(idx_num_ancors, shape=(sum_objects * num_anchors, 1))
+        #    sum_object维度的索引 [[0,0,0], [1,1,1]...]        Tensor(sum_objects * num_anchors, 1)
+        idx_sum_objects = tf.range(sum_objects, dtype=tf.int32)
+        idx_sum_objects = tf.expand_dims(idx_sum_objects, axis=0)
+        idx_sum_objects = tf.repeat(idx_sum_objects, repeats=num_anchors, axis=-1)
+        idx_sum_objects = tf.reshape(idx_sum_objects, shape=(sum_objects * num_anchors, 1))
+        #    真实分类预测得分的索引 [[0,0,12], [0,1,4]...]        Tensor(sum_objects * num_anchors, 3)
+        idx = tf.concat([idx_sum_objects, idx_num_ancors, cls_true], axis=-1)
+        #    根据索引取真实分类预测得分        Tensor(sum_objects * num_anchors, )
+        cls_prob = tf.gather_nd(cls_prob, indices=idx)
+
+        mask = tf.reshape(mask, shape=(sum_objects * num_anchors, ))
+        #    计算交叉熵                Tensor(sum_objects * num_anchors, )
+        loss = mask * 1 * -tf.math.log(cls_prob)
+        loss = tf.RaggedTensor.from_row_lengths(loss, row_lengths=liable_num_objects * num_anchors)
         loss = tf.math.reduce_mean(loss, axis=-1)
+        
+#         
+#         
+#         #    多个二分类交叉熵
+#         #    取各个分类得分                 Tensor (sum_object, num_anchors, num_classes)
+#         cls_prob = liable_anchors[:, :, :num_classes]
+#         #    取标记分类索引，并做成one_hot    Tensor (sum_object, num_anchors, num_classes)
+#         cls_true = tf.cast(liable_anchors[:, :, num_classes + 7 + 5], dtype=tf.int32)
+#         cls_true = tf.one_hot(cls_true, depth=num_classes)
+#         #    取掩码    Tensor (sum_object, num_anchors, 1)
+#         mask = liable_anchors[:, :, num_classes + 7 + 6]
+#         mask = tf.expand_dims(mask, axis=-1)
+#         
+#         #    计算: loss_cls = ∑(i∈cells) ∑(j∈anchors) ∑(c∈类别集合) U[i,j] * [p_[i,j,c] * -log(p[i,j,c]) + (1 - p_[i,j,c]) * -log(1 - p[i,j,c])]
+#         #    Tensor (sum_object, num_anchors, num_classes)
+#         loss = mask * (cls_true * -tf.math.log(tf.math.maximum(cls_prob, 1e-15)) + (1 - cls_true) * -tf.math.log(tf.math.maximum(1 - cls_prob, 1e-15)))
+#         loss = tf.math.reduce_sum(loss, axis=(1, 2))
+#         loss = tf.RaggedTensor.from_row_lengths(loss, row_lengths=liable_num_objects)
+#         loss = tf.math.reduce_mean(loss, axis=-1)
+        
+        tf.print('loss:', loss, ' fmaps_shape:', fmaps_shape, output_stream=logf.get_logger_filepath('losses_v4_classes'))
+        
         return loss
     
 

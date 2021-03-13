@@ -76,7 +76,7 @@ def takeout_liables(liable_idxBHW=None,
     #    还原gts_boxes    Tensor(sum_object, num_anchors, 6)
     gts_boxes = reduction_gts_boxes(liable_y, fmaps_shape, num_anchors)
     #    还原anchors_boxes    Tensor(sum_object, num_anchors, 4)
-    anchors_boxes = reduction_anchors_boxes(liable_anchors_prob, liable_y_cell_idx, liable_y_anchors_info, fmaps_shape)
+    anchors_boxes = reduction_anchors_boxes(liable_anchors_prob, liable_y_cell_idx, liable_y_anchors_info, fmaps_shape, num_classes)
     
     #    计算anchors与gt的IoU    Tensor(sum_object, num_anchors, )
     iou = iou_b_n2n_tf(rect_srcs=anchors_boxes, rect_tags=gts_boxes)
@@ -177,9 +177,10 @@ def reduction_gts_boxes(liable_y, fmaps_shape, num_anchors):
 
 
 #    liable_anchor_prob中的信息还原为anchors_boxes
-def reduction_anchors_boxes(liable_anchors_prob, liable_y_cell_idx, liable_y_anchors_info, fmaps_shape):
+def reduction_anchors_boxes(liable_anchors_prob, liable_y_cell_idx, liable_y_anchors_info, fmaps_shape, num_classes):
     '''liable_anchors_prob中的预测dx,dy,dw,dh还原为anchors_boxes
         @param liable_anchors_prob: Tensor (sum_object, num_anchors, num_classes + 5)
+                                                num_classes: 分类数量
                                                 1: 预测置信度
                                                 4: dx,dy, dw,dh
         @param liable_y_cell_idx: cell左上点坐标，Tensor(sum_object, 1, 2)
@@ -189,12 +190,12 @@ def reduction_anchors_boxes(liable_anchors_prob, liable_y_cell_idx, liable_y_anc
                                         4: lx,ly, rx,ry (相对特征图坐标)
     '''
     #    取dx,dy,dw,dh
-    dn = liable_anchors_prob[:, :, 1:]
+    dn = liable_anchors_prob[:, :, num_classes + 1:]
     #    还原中心点坐标, 宽高信息
     cx = dn[:, :, 0] + liable_y_cell_idx[:, :, 1]                                                    #    cx = dx + cell[x]
     cy = dn[:, :, 1] + liable_y_cell_idx[:, :, 0]                                                    #    cy = dy + cell[y]
-    half_w = tf.math.exp(dn[:, :, 2]) *  (liable_y_anchors_info[:, 1] * fmaps_shape[1]) / 2       #    w = exp(dw) * anchor[w]
-    half_h = tf.math.exp(dn[:, :, 3]) *  (liable_y_anchors_info[:, 2] * fmaps_shape[0]) / 2       #    h = exp(dh) * anchor[h]
+    half_w = tf.math.exp(dn[:, :, 2]) *  (liable_y_anchors_info[:, :, 1] * fmaps_shape[1]) / 2       #    w = exp(dw) * anchor[w]
+    half_h = tf.math.exp(dn[:, :, 3]) *  (liable_y_anchors_info[:, :, 2] * fmaps_shape[0]) / 2       #    h = exp(dh) * anchor[h]
     anchor_lx = cx - half_w
     anchor_ly = cy - half_h
     anchor_rx = cx + half_w
@@ -283,7 +284,7 @@ def takeout_unliables(liable_idxBHW=None,
     idx_unliable = tf.where(tf.equal(idx_mat, 0))
     unliable_anchors = tf.gather_nd(yolohard, indices=idx_unliable)
     unliable_anchors = unliable_anchors[:, num_classes]
-    unliable_anchors = tf.reshape(unliable_anchors, shape=(unliable_sum_objects, 3, ))
+    unliable_anchors = tf.reshape(unliable_anchors, shape=(unliable_sum_objects, num_anchors, ))
     return unliable_anchors, unliable_num_objects
 
 

@@ -45,8 +45,6 @@ losses_v4_classes:
    out: logs/losses/v4_classes.log
    console: true
    formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
-   
-
 #   metrics相关日志
 metrics_v4:
    level: INFO
@@ -73,4 +71,7 @@ metrics_v4_classes:
    out: logs/metrics/v4_classes.log
    console: true
    formatter: '%(asctime)s-%(name)s-%(levelname)s-%(message)s'
+   
+   
+   
    

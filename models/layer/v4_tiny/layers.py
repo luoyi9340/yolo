@@ -171,7 +171,7 @@ class YoloV4TinyLayer(tf.keras.layers.Layer):
         self._yolohard_register = YoloHardRegisterLayer()
         pass
     
-    def call(self, x, **kwargs):
+    def call(self, x, training=None, **kwargs):
         #    先做padding1（放模型第一层会存在load_weight的bug，所以只能放这）
         x = tf.pad(x, paddings=[[0,0], [1,1], [1,1], [0,0]])
         

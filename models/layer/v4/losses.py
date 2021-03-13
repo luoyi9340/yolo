@@ -108,7 +108,7 @@ class YoloLosses(YoloV4BaseLosses):
         '''
         #    解析yolohard值并暂存
         yolohard1 = self._yolohard_register.get_yolohard1()
-        y_true1 = y_true[:, 2, :]
+        y_true1 = y_true[:, 0, :]
         liable_idxBHW1, liable_num_objects1 = parse_idxBHW(y_true1, self._batch_size)
         liable_anchors1, liable_num_objects1 = takeout_liables(liable_idxBHW1, liable_num_objects1, yolohard1, y_true1, self._num_anchors, self._batch_size, self._num_classes, self._threshold_liable_iou)
         unliable_anchors1, unliable_num_objects1 = takeout_unliables(liable_idxBHW1, liable_num_objects1, yolohard1, y_true1, self._batch_size, self._num_anchors, self._num_classes)
@@ -122,7 +122,7 @@ class YoloLosses(YoloV4BaseLosses):
         self._anchors_register.deposit_yolohard2(liable_anchors2, liable_num_objects2, unliable_anchors2, unliable_num_objects2)
         
         yolohard3 = self._yolohard_register.get_yolohard3()
-        y_true3 = y_true[:, 0, :]
+        y_true3 = y_true[:, 2, :]
         liable_idxBHW3, liable_num_objects3 = parse_idxBHW(y_true3, self._batch_size)
         liable_anchors3, liable_num_objects3 = takeout_liables(liable_idxBHW3, liable_num_objects3, yolohard3, y_true3, self._num_anchors, self._batch_size, self._num_classes, self._threshold_liable_iou)
         unliable_anchors3, unliable_num_objects3 = takeout_unliables(liable_idxBHW3, liable_num_objects3, yolohard3, y_true3, self._batch_size, self._num_anchors, self._num_classes)

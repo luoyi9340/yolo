@@ -1,27 +1,27 @@
 #   手写字母识别（tensorflow2练手程序）
 dataset:
    #   训练集相关配置
-   in_train: /Users/irenebritney/Desktop/vcode/dataset/num_letter/train
+   in_train: /home/mist/dataset/num_letter/train
    #   多文件模式中指定每个文件读取多少，单文件模式就是总数
    count_train: 20000
    # count_train: 19674   #   超过32proposal的图片数量
-   label_train: /Users/irenebritney/Desktop/vcode/dataset/num_letter/train.jsons
+   label_train: /home/mist/dataset/num_letter/train.jsons
    #   label是否多文件。会从train.jsons0, train.jsons1...开始往后读，直到某个idx读不到为止。所以idx一定要连续
    label_train_mutiple: false
    #   验证集相关配置
-   in_val: /Users/irenebritney/Desktop/vcode/dataset/num_letter/val
+   in_val: /home/mist/dataset/num_letter/val
    count_val: 100
-   label_val: /Users/irenebritney/Desktop/vcode/dataset/num_letter/val.jsons
+   label_val: /home/mist/dataset/num_letter/val.jsons
    label_val_mutiple: false
    #   测试集相关配置
-   in_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test
+   in_test: /home/mist/dataset/num_letter/test
    count_test: 100
-   label_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test.jsons
+   label_test: /home/mist/dataset/num_letter/test.jsons
    label_test_mutiple: false
    #   训练时批量大小
-   batch_size: 2
+   batch_size: 4
    #   训练epochs
-   epochs: 2
+   epochs: 20
    #   打乱数据的buffer_size是batch_size的多少倍. < 0表示不做打乱
    shuffle_buffer_rate: -1
    
@@ -33,23 +33,23 @@ dataset_cells:
    #   特征图缩放比例(顺序与上面anchors_set一致，数量也必须要一致)
    scales_set: [32, 16, 8]
    #   训练集相关
-   in_train: /Users/irenebritney/Desktop/vcode/dataset/num_letter/train
+   in_train: /home/mist/dataset/num_letter/train
    count_train: 20000
-   label_train: /Users/irenebritney/Desktop/vcode/dataset/num_letter/train_cels.jsons
+   label_train: /home/mist/dataset/num_letter/train_cels.jsons
    label_train_mutiple: false
    #   验证集相关
-   in_val: /Users/irenebritney/Desktop/vcode/dataset/num_letter/val
+   in_val: /home/mist/dataset/num_letter/val
    count_val: 100
-   label_val: /Users/irenebritney/Desktop/vcode/dataset/num_letter/val_cells.jsons
+   label_val: /home/mist/dataset/num_letter/val_cells.jsons
    label_val_mutiple: false
    #   测试集相关
-   in_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test
+   in_test: /home/mist/dataset/num_letter/test
    count_test: 100
-   label_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test_cells.jsons
+   label_test: /home/mist/dataset/num_letter/test_cells.jsons
    label_test_mutiple: false
    #   数据集后处理
    batch_size: 4
-   epochs: 1
+   epochs: 20
    shuffle_buffer_rate: -1
    
    
@@ -57,12 +57,12 @@ dataset_cells:
 v4: 
    #   训练相关配置
    learning_rate: 0.0001
-   save_weights_dir: /Users/irenebritney/Desktop/vcode/yolo/models
+   save_weights_dir: temp/models
    tensorboard_dir: logs/tensorboard
    #   loss相关配置
    loss_lamda_box: 1
    loss_lamda_confidence: 1
-   loss_lamda_unconfidence: 0.1
+   loss_lamda_unconfidence: 0.5
    loss_lamda_cls: 1
    #   负责的anchor的IoU阈值，与gt的IoU超过此阈值的anchor都会被判定为负责预测的anchor（所以实际训练中一个cell中负责预测的anchor会不止一个）
    #   当所有anchor的IoU都小于阈值时，取最大的那个anchor
@@ -70,6 +70,4 @@ v4:
    #   数据相关配置
    #   每张图片最大物体数
    max_objects: 6
-   #   NMS中判为重叠的IoU
-   threshold_overlap_iou: 0.1
    

@@ -247,8 +247,8 @@ class YoloV4Layer(tf.keras.layers.Layer):
         yolo_hard2 = self._yolo_hard2(process4)         #    [12 * 30 * (num_anchors*(num_classes+5))]
         yolo_hard3 = self._yolo_hard3(process5)         #    [6 * 15 * (num_anchors*(num_classes+5))]
         
-        #    寄存3个yolohard输出
-        self._yolo_hard_register_layer(x=x, yolohard1=yolo_hard1, yolohard2=yolo_hard2, yolohard3=yolo_hard3)
+        #    寄存3个yolohard输出，与tiny顺序保持一致 (yolo_hard1对应最小特征图, yolo_hard3对应最大特征图)
+        self._yolo_hard_register_layer(x=x, yolohard1=yolo_hard3, yolohard2=yolo_hard2, yolohard3=yolo_hard1)
         return yolo_hard3
     pass
 

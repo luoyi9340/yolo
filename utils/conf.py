@@ -61,7 +61,8 @@ def load_conf_yaml(yaml_path=CONF_PATH):
             c['v4']['loss_lamda_unconfidence'],
             c['v4']['loss_lamda_cls'],
             c['v4']['threshold_liable_iou'],
-            c['v4']['max_objects'])
+            c['v4']['max_objects'],
+            c['v4']['threshold_overlap_iou'])
     return c, dataset, dataset_cells, v4
 
 
@@ -188,7 +189,8 @@ class V4():
                  loss_lamda_unconfidence=0.5,
                  loss_lamda_cls=1.,
                  threshold_liable_iou=0.5,
-                 max_objects=6):
+                 max_objects=6,
+                 threshold_overlap_iou=0.5):
         self.__learning_rate = learning_rate
         self.__save_weights_dir = save_weights_dir
         self.__tensorboard_dir = tensorboard_dir
@@ -198,6 +200,7 @@ class V4():
         self.__loss_lamda_cls = loss_lamda_cls
         self.__threshold_liable_iou = threshold_liable_iou
         self.__max_objects = max_objects
+        self.__threshold_overlap_iou = threshold_overlap_iou
         pass
     def get_learning_rate(self): return self.__learning_rate
     def get_save_weights_dir(self): return convert_to_abspath(self.__save_weights_dir)
@@ -210,6 +213,7 @@ class V4():
     
     def get_threshold_liable_iou(self): return self.__threshold_liable_iou
     def get_max_objects(self): return self.__max_objects
+    def get_threshold_overlap_iou(self): return self.__threshold_overlap_iou
     pass
 
 

@@ -535,10 +535,11 @@ def tensor_db(img_dir=conf.DATASET_CELLS.get_in_train(),
               shuffle_buffer_rate=conf.DATASET_CELLS.get_shuffle_buffer_rate(),
               x_preprocess=lambda x:((x / 255.) - 0.5) * 2,
               y_preprocess=None,
-              num_scales = len(conf.DATASET_CELLS.get_scales_set()),
-              num_anchors = conf.DATASET_CELLS.get_anchors_set().shape[1]):
+              num_scales=len(conf.DATASET_CELLS.get_scales_set()),
+              num_anchors=conf.DATASET_CELLS.get_anchors_set().shape[1],
+              max_objects=conf.V4.get_max_objects()):
     x_shape = tf.TensorShape([conf.IMAGE_HEIGHT, conf.IMAGE_WEIGHT, 3])
-    y_shape = tf.TensorShape([num_scales, 6, 2 + 5 + num_anchors * 3])
+    y_shape = tf.TensorShape([num_scales, max_objects, 2 + 5 + num_anchors * 3])
     db = tf.data.Dataset.from_generator(generator=lambda :cells_iterator(img_dir=img_dir,
                                                                          label_path=label_path,
                                                                          is_label_mutiple=is_label_mutiple,
@@ -549,7 +550,7 @@ def tensor_db(img_dir=conf.DATASET_CELLS.get_in_train(),
                                         output_shapes=(x_shape, y_shape)
                                         )
     if (shuffle_buffer_rate > 0): db = db.shuffle(buffer_size=shuffle_buffer_rate * batch_size)
-    if (batch_size): db = db.batch(batch_size)
+    if (batch_size): db = db.batch(batch_size, drop_remainder=True)
     if (epochs): db = db.repeat(epochs)
     return db
 

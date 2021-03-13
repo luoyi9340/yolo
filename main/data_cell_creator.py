@@ -47,16 +47,16 @@ test_db_iter = ds.data_iterator(img_dir=conf.DATASET.get_in_test(),
                                 count=conf.DATASET.get_count_test())
 log.info('init test_db_iter. count:' + str(conf.DATASET.get_count_test()) + 'img_dir:' + str(conf.DATASET.get_in_test()) + ' label_path:' + str(conf.DATASET.get_label_test()))
 
-#    生成训练数据
-cell_creator.create(data_iterator=train_db_iter, 
-                    count=conf.DATASET_CELLS.get_count_train(), 
-                    out_path=conf.DATASET_CELLS.get_label_train())
-#    生成验证数据集
-cell_creator.create(data_iterator=val_db_iter, 
-                    count=conf.DATASET_CELLS.get_count_val(), 
-                    out_path=conf.DATASET_CELLS.get_label_val())
+# #    生成训练数据
+# cell_creator.create(data_iterator=train_db_iter, 
+#                     count=conf.DATASET_CELLS.get_count_train(), 
+#                     out_path=conf.DATASET_CELLS.get_label_train())
+# #    生成验证数据集
+# cell_creator.create(data_iterator=val_db_iter, 
+#                     count=conf.DATASET_CELLS.get_count_val(), 
+#                     out_path=conf.DATASET_CELLS.get_label_val())
 #    生成测试数据集
-cell_creator.create(data_iterator=train_db_iter, 
+cell_creator.create(data_iterator=test_db_iter, 
                     count=conf.DATASET_CELLS.get_count_test(), 
                     out_path=conf.DATASET_CELLS.get_label_test())
 

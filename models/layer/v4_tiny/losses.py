@@ -5,8 +5,11 @@ yolov4 tiny的loss
 @author: luoyi
 Created on 2021年3月9日
 '''
+import tensorflow as tf
+
 import utils.conf as conf
 import utils.alphabet as alphabet
+import utils.logger_factory as logf
 from models.layer.commons.losses import YoloV4BaseLosses
 from models.layer.commons.part import YoloHardRegister
 from models.layer.commons.part import AnchorsRegister
@@ -70,16 +73,15 @@ class YoloV4TingLosses(YoloV4BaseLosses):
         self._anchors_register.deposit_yolohard2(liable_anchors2, liable_num_objects2, unliable_anchors2, unliable_num_objects2)
         
         #    计算loss
-        loss_boxes1 = self.loss_boxes(liable_anchors1, liable_num_objects1, self._num_classes)
-        loss_confidence1 = self.loss_confidence(liable_anchors1, liable_num_objects1, self._num_classes)
-        loss_unconfidence1 = self.loss_unconfidence(unliable_anchors1, unliable_num_objects1)
-        loss_cls1 = self.loss_cls(liable_anchors1, liable_num_objects1, self._num_classes)
+        loss_boxes1 = self.loss_boxes(liable_anchors1, liable_num_objects1, fmaps_shape=(yolohard1.shape[1], yolohard1.shape[2]), num_classes=self._num_classes)
+        loss_confidence1 = self.loss_confidence(liable_anchors1, liable_num_objects1, fmaps_shape=(yolohard1.shape[1], yolohard1.shape[2]), num_classes=self._num_classes)
+        loss_unconfidence1 = self.loss_unconfidence(unliable_anchors1, unliable_num_objects1, fmaps_shape=(yolohard1.shape[1], yolohard1.shape[2]))
+        loss_cls1 = self.loss_cls(liable_anchors1, liable_num_objects1, fmaps_shape=(yolohard1.shape[1], yolohard1.shape[2]), num_classes=self._num_classes)
         
-        loss_boxes2 = self.loss_boxes(liable_anchors2, liable_num_objects2, self._num_classes)
-        loss_confidence2 = self.loss_confidence(liable_anchors2, liable_num_objects2, self._num_classes)
-        loss_unconfidence2 = self.loss_unconfidence(unliable_anchors2, unliable_num_objects2)
-        loss_cls2 = self.loss_cls(liable_anchors2, liable_num_objects2, self._num_classes)
-        
+        loss_boxes2 = self.loss_boxes(liable_anchors2, liable_num_objects2, fmaps_shape=(yolohard2.shape[1], yolohard2.shape[2]), num_classes=self._num_classes)
+        loss_confidence2 = self.loss_confidence(liable_anchors2, liable_num_objects2, fmaps_shape=(yolohard2.shape[1], yolohard2.shape[2]), num_classes=self._num_classes)
+        loss_unconfidence2 = self.loss_unconfidence(unliable_anchors2, unliable_num_objects2, fmaps_shape=(yolohard2.shape[1], yolohard2.shape[2]))
+        loss_cls2 = self.loss_cls(liable_anchors2, liable_num_objects2, fmaps_shape=(yolohard2.shape[1], yolohard2.shape[2]), num_classes=self._num_classes)
         
         loss_boxes = (loss_boxes1 + loss_boxes2) / 2
         loss_confidence = (loss_confidence1 + loss_confidence2) / 2
@@ -89,6 +91,8 @@ class YoloV4TingLosses(YoloV4BaseLosses):
                 + self._loss_lamda_confidence * loss_confidence \
                 + self._loss_lamda_unconfidence * loss_unconfidence \
                 + self._loss_lamda_cls * loss_cls
+        
+        tf.print('loss:', loss, output_stream=logf.get_logger_filepath('losses_v4'))
                 
         return loss
     

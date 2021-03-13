@@ -8,6 +8,7 @@ Created on 2021年3月10日
 import tensorflow as tf
 
 import utils.alphabet as alphabet
+import utils.logger_factory as logf
 from models.layer.commons.part import AnchorsRegister
 
 
@@ -35,6 +36,10 @@ class YoloV4MetricsBoxes(tf.keras.metrics.Metric):
         self.mae = self.add_weight(name='box_mae', initializer='zero', dtype=tf.float32)
         pass
     
+    def set_yolohard_scale_idx(self, idx):
+        self._yolohard_scale_idx = idx
+        pass
+    
     #    计算anchors_boxes的[lx,ly, rx,ry]坐标与gts_boxes的绝对值误差
     def mae_boxes(self, liable_anchors, num_classes=len(alphabet.ALPHABET)):
         '''
@@ -56,6 +61,9 @@ class YoloV4MetricsBoxes(tf.keras.metrics.Metric):
         mae_boxes = tf.math.abs(anchors_boxes - gts_boxes)
         #    Tensor(4, )
         mae_every_loc = tf.math.reduce_mean(mae_boxes, axis=(0,1))
+        
+        tf.print('mae:', mae_every_loc, output_stream=logf.get_logger_filepath('metrics_v4_boxes'))
+        
         return mae_every_loc
     
     def update_state(self, y_true, y_pred, sample_weight=None):
@@ -100,6 +108,10 @@ class YoloV4MetricsConfidence(tf.keras.metrics.Metric):
         self.mae = self.add_weight(name='box_confidence', initializer='zero', dtype=tf.float32)
         pass
     
+    def set_yolohard_scale_idx(self, idx):
+        self._yolohard_scale_idx = idx
+        pass
+    
     #    计算anchors_confidence与gts_confidence的绝对值误差
     def mae_confidence(self, liable_anchors, num_classes=len(alphabet.ALPHABET)):
         '''
@@ -120,6 +132,9 @@ class YoloV4MetricsConfidence(tf.keras.metrics.Metric):
         #    计算绝对值误差        Tensor(sum_object, num_anchors, )
         mae_confidence = tf.math.abs(anchors_confidence - gts_confidence)
         mae = tf.math.reduce_mean(mae_confidence)
+        
+        tf.print('mae:', mae, output_stream=logf.get_logger_filepath('metrics_v4_confidence'))
+        
         return mae
     
     def update_state(self, y_true, y_pred, sample_weight=None):
@@ -163,6 +178,10 @@ class YoloV4MetricsUnConfidence(tf.keras.metrics.Metric):
         self.mae = self.add_weight(name='box_unconfidence', initializer='zero', dtype=tf.float32)
         pass
     
+    def set_yolohard_scale_idx(self, idx):
+        self._yolohard_scale_idx = idx
+        pass
+    
     #    计算anchors_confidence与gts_confidence的绝对值误差
     def mae_unconfidence(self, unliable_anchors, num_classes=len(alphabet.ALPHABET)):
         '''
@@ -173,6 +192,9 @@ class YoloV4MetricsUnConfidence(tf.keras.metrics.Metric):
         #    计算绝对值误差        Tensor(sum_unliable_cells, num_anchors, )
         mae_unconfidence = tf.math.abs(unliable_anchors - 0)
         mae = tf.math.reduce_mean(mae_unconfidence)
+        
+        tf.print('mae:', mae, output_stream=logf.get_logger_filepath('metrics_v4_unconfidence'))
+        
         return mae
     
     def update_state(self, y_true, y_pred, sample_weight=None):
@@ -216,6 +238,10 @@ class YoloV4MetricsClasses(tf.keras.metrics.Metric):
         self.mae = self.add_weight(name='box_classes', initializer='zero', dtype=tf.float32)
         pass
     
+    def set_yolohard_scale_idx(self, idx):
+        self._yolohard_scale_idx = idx
+        pass
+    
     #    计算anchors_confidence与gts_confidence的绝对值误差
     def mae_classes(self, liable_anchors, liable_num_objects, num_classes=len(alphabet.ALPHABET)):
         '''
@@ -229,18 +255,27 @@ class YoloV4MetricsClasses(tf.keras.metrics.Metric):
                                                 1: 表示该位置anchor是否负责预测。0：不负责，1：负责
             @param liable_num_objects: Tensor(batch_size,)   每个batch实际含有的物体数，idxBHW第1个维度的划分: 
         '''
+        #    取掩码    Tensor(sum_object, num_anchors,)
+        mask = liable_anchors[:, :, num_classes + 7 + 6]
         #    取每个anchor各个分类得分，并取得分最高的作为分类预测    Tensor(sum_object, num_anchors,)
         anchors_classes_prob = liable_anchors[:, :, :num_classes]
         anchors_classes_prob = tf.math.argmax(anchors_classes_prob, axis=-1)
+        anchors_classes_prob_flatten = tf.gather_nd(anchors_classes_prob, indices=tf.where(mask == 1))
         #    取每个anchor对应的真实分类索引    Tensor(sum_object, num_anchors,)
         anchors_classes_true = liable_anchors[:, :, num_classes + 7 + 5]
+        anchors_classes_true = anchors_classes_true * mask
         anchors_classes_true = tf.cast(anchors_classes_true, dtype=tf.int64)
-        
+        anchors_classes_true_flatten = tf.gather_nd(anchors_classes_true, indices=tf.where(mask == 1))
         #    比较
-        equal_res = tf.equal(anchors_classes_prob, anchors_classes_true)
+        equal_res = tf.equal(anchors_classes_prob_flatten, anchors_classes_true_flatten)
         
+        #    预测正确的数量
         T = tf.math.count_nonzero(equal_res)
-        TP = tf.math.reduce_sum(liable_num_objects)
+        #    总量=掩码中=1的数量
+        TP = tf.math.count_nonzero(liable_anchors[:, :, num_classes + 7 + 6])
+        
+        tf.print('T:', T, ' TP:', TP, output_stream=logf.get_logger_filepath('metrics_v4_classes'))
+        
         return T, TP
     
     def update_state(self, y_true, y_pred, sample_weight=None):

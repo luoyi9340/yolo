@@ -8,10 +8,13 @@ Created on 2020年12月16日
 '''
 import abc
 import tensorflow as tf
-import numpy as np
 
 import utils.conf as conf
-# from utils.tf_expand import AdjustLRWithBatchCallback
+import utils.alphabet as alphabet 
+from models.layer.commons.part import YoloHardRegister, AnchorsRegister
+from models.layer.commons.preporcess import takeout_liables, takeout_unliables, parse_idxBHW
+from models.layer.commons.metrics import YoloV4MetricsBoxes, YoloV4MetricsConfidence, YoloV4MetricsUnConfidence, YoloV4MetricsClasses
+from models.layer.commons.nms import nms_tf
 
 
 #    模型类的公共行为
@@ -37,41 +40,15 @@ class AModel(tf.keras.models.Model):
             #    装配网络模型
             self.assembling()
             #    初始化优化器，损失，评价
-            self._optimizer = self.create_optimizer(learning_rate=learning_rate)
-            self._loss = self.create_loss()
-            self._metrics = self.create_metrics()
+            optimizer = self.create_optimizer(learning_rate=learning_rate)
+            loss = self.create_loss()
+            metrics = self.create_metrics()
             #    编译网络
-            self.compile(optimizer=self._optimizer, 
-                         loss=self._loss, 
-                         metrics=self._metrics)
+            self.compile(optimizer=optimizer, 
+                         loss=loss, 
+                         metrics=metrics)
             pass
         pass
-    
-    #    测试
-    def test(self, X_test, 
-                    batch_size=32, 
-                    verbose=1):
-        '''跑测试集
-            @param X_test: 测试集
-            @param batch_size: 批量大小，默认32
-            @param verbose: 默认日志级别（0为不在标准输出流输出日志信息，1为输出进度条记录，2为每个epoch输出一行记录）
-            @return: 每个测试数据的最终分类索引
-        '''
-        pred = self.predict(X_test, batch_size=batch_size, verbose=verbose)
-        pred = np.argmax(pred, axis=1)
-        return pred
-    
-    #    测试准确率
-    def test_accuracy(self, X_test, Y_test, batch_size=32):
-        '''跑测试集
-            @param X_test: 测试集
-            @param Y_test: 测试集标签
-            @return: 准确率（0 ~ 1之间）
-        '''
-        pred = self.test(X_test, batch_size=batch_size)
-        eq_res = tf.equal(Y_test, pred)
-        accuracy = np.mean(eq_res)
-        return accuracy
     
     
     #    保存模型参数
@@ -279,6 +256,236 @@ class AModel(tf.keras.models.Model):
     #    模型名称
     def model_name(self):
         return self.name
+    
+    
+    #    计算yolohard的评价
+    def metrics_yolohard(self, y_true, total, yolohard, idx_yolohard,
+                         anchors_register=AnchorsRegister.instance(),
+                         num_anchors=conf.DATASET_CELLS.get_anchors_set().shape[1],
+                         num_classes=len(alphabet.ALPHABET),
+                         threshold_liable_iou=conf.V4.get_threshold_liable_iou(),
+                         metrics_boxes = YoloV4MetricsBoxes(),
+                         metrics_confidence = YoloV4MetricsConfidence(),
+                         metrics_unconfidence = YoloV4MetricsUnConfidence(),
+                         metrics_classes = YoloV4MetricsClasses()):
+        liable_idxBHW, liable_num_objects = parse_idxBHW(y_true, total)
+        liable_anchors, liable_num_objects = takeout_liables(liable_idxBHW, liable_num_objects, yolohard, y_true, num_anchors, total, num_classes, threshold_liable_iou)
+        unliable_anchors, unliable_num_objects = takeout_unliables(liable_idxBHW, liable_num_objects, yolohard, y_true, total, num_anchors, num_classes)
+        if (idx_yolohard == 1): anchors_register.deposit_yolohard1(liable_anchors, liable_num_objects, unliable_anchors, unliable_num_objects)
+        if (idx_yolohard == 2): anchors_register.deposit_yolohard2(liable_anchors, liable_num_objects, unliable_anchors, unliable_num_objects)
+        if (idx_yolohard == 3): anchors_register.deposit_yolohard3(liable_anchors, liable_num_objects, unliable_anchors, unliable_num_objects)
+        
+        #    返回值
+        r = {}
+        
+        #    计算各种评价
+        metrics_boxes.set_yolohard_scale_idx(idx_yolohard)
+        metrics_boxes.update_state(y_true=y_true, y_pred=None, sample_weight=None)
+        r['mae_box'] = metrics_boxes.result().numpy()
+            
+        metrics_confidence.set_yolohard_scale_idx(idx_yolohard)
+        metrics_confidence.update_state(y_true=y_true, y_pred=None, sample_weight=None)
+        r['metrics_confidence'] = metrics_confidence.result().numpy()
+            
+        metrics_unconfidence.set_yolohard_scale_idx(idx_yolohard)
+        metrics_unconfidence.update_state(y_true=y_true, y_pred=None, sample_weight=None)
+        r['metrics_unconfidence'] = metrics_unconfidence.result().numpy()
+            
+        metrics_classes.set_yolohard_scale_idx(idx_yolohard)
+        metrics_classes.update_state(y_true=y_true, y_pred=None, sample_weight=None)
+        r['metrics_classes'] = metrics_classes.result().numpy()
+        
+        return r
+    #    测试准确率
+    def test_metrics(self, X_test, Y_test, 
+                     yolohard_register=YoloHardRegister.instance(),
+                     anchors_register=AnchorsRegister.instance(),
+                     num_anchors=conf.DATASET_CELLS.get_anchors_set().shape[1],
+                     num_classes=len(alphabet.ALPHABET),
+                     batch_size=conf.DATASET_CELLS.get_batch_size(),
+                     threshold_liable_iou=conf.V4.get_threshold_liable_iou()):
+        '''跑测试集
+            @param X_test: 测试集    x.shape = (total, conf.IMAGE_HEIGHT, conf.IMAGE_WEIGHT, 3)
+            @param Y_test: 测试集标签 y.shape = (total, num_scales, max_objects, 2 + 5 + num_anchors * 3)
+            @return: 准确率（0 ~ 1之间）
+        '''
+        total = X_test.shape[0]
+        #    取输入的预测结果    Tensor()
+        _ = self(inputs=X_test)
+        
+        #    计算评价的工具
+        metrics_boxes = YoloV4MetricsBoxes()
+        metrics_confidence = YoloV4MetricsConfidence()
+        metrics_unconfidence = YoloV4MetricsUnConfidence()
+        metrics_classes = YoloV4MetricsClasses()
+        
+        #    最终输出
+        res = {}
+        
+        #    shape=(total, H, W, num_anchors, num_classes + 5)
+        yolohard1 = yolohard_register.get_yolohard1()
+        if (yolohard1 is not None):
+            yolohard_shape = (yolohard1.shape[1], yolohard1.shape[2])
+            y_true = Y_test[:, 0, :]
+            r = self.metrics_yolohard(y_true, total, yolohard1, 1, anchors_register, num_anchors, num_classes, threshold_liable_iou, metrics_boxes, metrics_confidence, metrics_unconfidence, metrics_classes)
+            res[yolohard_shape] = r
+            pass
+        yolohard2 = yolohard_register.get_yolohard2()
+        if (yolohard2 is not None):
+            yolohard_shape = (yolohard2.shape[1], yolohard2.shape[2])
+            y_true = Y_test[:, 1, :]
+            r = self.metrics_yolohard(y_true, total, yolohard2, 2, anchors_register, num_anchors, num_classes, threshold_liable_iou, metrics_boxes, metrics_confidence, metrics_unconfidence, metrics_classes)
+            res[yolohard_shape] = r
+            pass
+        yolohard3 = yolohard_register.get_yolohard3()
+        if (yolohard3 is not None):
+            yolohard_shape = (yolohard3.shape[1], yolohard3.shape[2])
+            y_true = Y_test[:, 2, :]
+            r = self.metrics_yolohard(y_true, total, yolohard3, 3, anchors_register, num_anchors, num_classes, threshold_liable_iou, metrics_boxes, metrics_confidence, metrics_unconfidence, metrics_classes)
+            res[yolohard_shape] = r
+            pass        
+        
+        return res
+    
+    
+    #    解析yolohard的预测结果
+    def parse_yolohard(self, 
+                       yolohard, 
+                       img_shape=None,
+                       anchor_scale=None,
+                       scale=None,
+                       num_classes=len(alphabet.ALPHABET), 
+                       threshold_liable_iou=conf.V4.get_threshold_liable_iou()):
+        '''
+            @param anchor_set: Tensor(3, 2)    anchor高宽（相对于统一尺寸原图）
+            @param yolohard: Tensor(1, H, W, num_anchors, num_classes + 5)
+                                                                num_class: 各个分类预测得分
+                                                                1: 置信度预测
+                                                                4: 预测的dx,dy,dw,dh
+            @return: Tensor(sum_qualified_anchors, 4 + 1 + 1)
+                                4: lx,ly,rx,ry    (相对统一尺寸坐标)
+                                1: 置信度
+                                1: 预测分类索引
+        '''
+        #    取置信度超过阈值的anchor    Tensor(sum_qualified_anchors, num_classes + 5)
+        qualified_indices = tf.where(yolohard[:, :,:, :, num_classes] > threshold_liable_iou)
+        qualified_indices = tf.cast(qualified_indices, dtype=tf.int32)
+        qualified_anchors = tf.gather_nd(yolohard, indices=qualified_indices)
+        sum_qualified_anchors = qualified_anchors.shape[0]                          #    符合条件的anchor总数
+        #    按置信度降序
+        qualified_anchors_confidence = qualified_anchors[:, num_classes]            #    Tensor(sum_qualified_anchors, )
+        sort_confidence_desc = tf.argsort(qualified_anchors_confidence, axis=-1, direction='DESCENDING')
+        #    排好序的anchor       Tensor(sum_qualified_anchors, num_classes + 5)
+        qualified_anchors = tf.gather(qualified_anchors, indices=sort_confidence_desc, axis=0)
+        #    排好序的anchor索引    Tensor(sum_qualified_anchors, 4)
+        qualified_indices = tf.gather(qualified_indices, indices=sort_confidence_desc, axis=0)
+        
+        #    anchor_scale转换为相对特征图的高宽    Tensor(3, 2)
+        fmaps_shape = tf.convert_to_tensor([[yolohard.shape[1], yolohard.shape[2]]], dtype=tf.float64)                    #    特征图高宽 Tensor(1, 2)                                                #    特征图高宽
+        anchor_scale = anchor_scale / tf.convert_to_tensor([[conf.IMAGE_HEIGHT, conf.IMAGE_WEIGHT]], dtype=tf.float64)    #    anchor_scale转换为整图占比 Tensor(3, 3)
+        anchor_scale = anchor_scale * fmaps_shape                                                                         #    anchor_scale转换为相对特征图高宽
+        
+        #    给qualified_anchors追加anchor高宽属性
+        anchor_scale = tf.repeat(tf.expand_dims(anchor_scale, axis=0), repeats=sum_qualified_anchors, axis=0)        #    Tensor(sum_qualified_anchors, 3, 2)
+        idx_ = tf.range(sum_qualified_anchors)
+        idx_ = tf.stack([idx_, qualified_indices[:, 3]], axis=-1)
+        anchor_scale = tf.gather_nd(anchor_scale, idx_)                                                              #    Tensor(sum_qualified_anchors, 2)
+        qualified_indices = tf.cast(qualified_indices, dtype=tf.float64)
+        qualified_indices = tf.concat([qualified_indices, anchor_scale], axis=-1)
+        
+        #    还原anchor_box
+        dn = qualified_anchors[:, num_classes + 1:]                       #    Tensor(sum_qualified_anchors, 6)
+        dn = tf.cast(dn, dtype=tf.float64)
+        cx = dn[:, 0] + qualified_indices[:, 2]                           #    cx = dx + cell[x]
+        cy = dn[:, 1] + qualified_indices[:, 1]                           #    cy = dy + cell[y]
+        half_w = tf.math.exp(dn[:, 2]) * (qualified_indices[:, 5]) / 2.   #    w = exp(dw) * anchor[w]
+        half_h = tf.math.exp(dn[:, 3]) * (qualified_indices[:, 4]) / 2.   #    h = exp(dh) * anchor[h]
+        lx = cx - half_w                                                  #    Tensor(sum_qualified_anchors, )
+        ly = cy - half_h                                                  #    Tensor(sum_qualified_anchors, )
+        rx = cx + half_w                                                  #    Tensor(sum_qualified_anchors, )
+        ry = cy + half_h                                                  #    Tensor(sum_qualified_anchors, )
+        scale_w = img_shape[1] / yolohard.shape[2]
+        scale_h = img_shape[0] / yolohard.shape[1]
+        #    还原为相对统一尺寸原图坐标
+        lx = lx * scale_w
+        ly = ly * scale_h
+        rx = rx * scale_w
+        ry = ry * scale_h
+        
+        #    取各个分类得分
+        qualified_anchors_classes = tf.math.argmax(qualified_anchors[:, :num_classes], axis=-1)
+        qualified_anchors_classes = tf.cast(qualified_anchors_classes, dtype=tf.float64)
+        
+        #    取置信度
+        qualified_anchors_confidence = qualified_anchors[:, num_classes]
+        qualified_anchors_confidence = tf.cast(qualified_anchors_confidence, dtype=tf.float64)
+        
+        #    anchors_boxes 相对于特征图的坐标
+        anchors_boxes = tf.stack([lx, ly, rx, ry, 
+                                  qualified_anchors_confidence,
+                                  qualified_anchors_classes], axis=-1)
+        return anchors_boxes
+    #    预测一张图片的结果
+    def divination(self, img,
+                   yolohard_register=YoloHardRegister.instance(),
+                   img_shape=None,
+                   anchors_set=conf.DATASET_CELLS.get_anchors_set(),
+                   scales_set=conf.DATASET_CELLS.get_scales_set(),
+                   num_classes=len(alphabet.ALPHABET),
+                   threshold_liable_iou=conf.V4.get_threshold_liable_iou(),
+                   threshold_overlap_iou=conf.V4.get_threshold_overlap_iou()
+                   ):
+        ''' step1: 拿图片的预测特征图
+            step2: 通过预测特征图拿置信度超过阈值的anchors，并按置信度降序
+            step3: 置信度超过阈值的anchors还原出anchor_box
+                        - 通过anchor预测拿dx,dy,dw,dh
+                        - 通过anchor在cell中的索引拿anchor[w],anchor[h]
+                        - 通过anchor所在cell在特征图的索引拿cell的左上点坐标
+                        - 还原出的anchor_box是相对特征图的，还原为原图
+                        - 还原出的原图是相对统一比例缩放的，这里不负责还原真实原图
+            step4: anchor_box做非极大值抑制
+                        - 置信度降序对应的anchor_box取第1个，记录进最终判定
+                        - 计算第1个与其他box的IoU，超过阈值的判定为重复。从生下的anchor_box中过滤掉重复的box
+                        - 在生下的anchor_box中取第1个，记录进最终判定，重复上述步骤直到没有anchor_box
+            @param img: Tensor(conf.IMAGE_HEIGHT, conf.IMAGE_WEIGHT, 3)，值归一到[-1,1]之间
+            @return: Tensor(sum_qualified_anchors, 6)
+                        lx,ly, rx,ry, 置信度, idxV
+                        坐标为相对统一比例缩放的原图，需要还原真实原图自行按比例缩放
+        '''
+        #    给img增加1维，按照(batch_size, H, W, 3)的格式给进网络
+        img = tf.expand_dims(img, axis=0)
+        
+        #    过网络，拿特征图
+        _ = self(inputs=img)
+        #    yolohard.shape=(H, W, num_anchors, num_classes + 5)
+        yolohard1 = yolohard_register.get_yolohard1()
+        anchors_boxes_list = []
+        if (yolohard1 is not None): 
+            anchors_boxes = self.parse_yolohard(yolohard1, img_shape=img_shape, anchor_scale=tf.convert_to_tensor(anchors_set[0], dtype=tf.float64), scale=scales_set[0], num_classes=num_classes, threshold_liable_iou=threshold_liable_iou)
+            anchors_boxes_list.append(anchors_boxes)
+            pass
+        yolohard2 = yolohard_register.get_yolohard2()
+        if (yolohard2 is not None):
+            anchors_boxes = self.parse_yolohard(yolohard2, img_shape=img_shape, anchor_scale=tf.convert_to_tensor(anchors_set[1], dtype=tf.float64), scale=scales_set[1], num_classes=num_classes, threshold_liable_iou=threshold_liable_iou)
+            anchors_boxes_list.append(anchors_boxes)
+            pass
+        yolohard3 = yolohard_register.get_yolohard3()
+        if (yolohard3 is not None):
+            anchors_boxes = self.parse_yolohard(yolohard3, img_shape=img_shape, anchor_scale=tf.convert_to_tensor(anchors_set[2], dtype=tf.float64), scale=scales_set[2], num_classes=num_classes, threshold_liable_iou=threshold_liable_iou)
+            anchors_boxes_list.append(anchors_boxes)
+            pass
+        anchors_boxes = tf.concat(anchors_boxes_list, axis=0)
+        
+        #    非极大值抑制
+        anchors_boxes = tf.gather(anchors_boxes, indices=tf.argsort(anchors_boxes[:, 4], axis=-1, direction='DESCENDING'), axis=0)
+        anchors_boxes = nms_tf(anchors_boxes, threshold_overlap_iou)
+        
+        #    结果按左上点x坐标排序
+        anchors_boxes = tf.gather(anchors_boxes, indices=tf.argsort(anchors_boxes[:, 0], axis=-1), axis=0)
+        
+        return anchors_boxes
+    
+    
     pass
 
 

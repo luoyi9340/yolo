@@ -47,19 +47,6 @@ class YoloV4Tiny(AModel):
         self._input_shape = input_shape
         self._name = name
         
-        #    两个yolohard暂存
-#         self._liable_anchors1 = tf.Variable(name='liable_anchors1', 
-#                                             initial_value=tf.zeros(shape=(self._batch_size, 6, 15, self._num_anchors, self._num_classes + 5), dtype=tf.float32), 
-#                                             shape=(self._batch_size, 6, 15, self._num_anchors, self._num_classes + 5), 
-#                                             dtype=tf.float32,
-#                                             trainable=False)
-        self._out_yolohard2 = tf.Variable(name='out_yolohard2', 
-                                          initial_value=tf.zeros(shape=(self._batch_size, 12, 30, self._num_anchors, self._num_classes + 5), dtype=tf.float32), 
-                                          shape=(self._batch_size, 12, 30, self._num_anchors, self._num_classes + 5), 
-                                          dtype=tf.float32,
-                                          trainable=False)
-
-        
         super(YoloV4Tiny, self).__init__(learning_rate, name)
         
         if (is_build): self.build(input_shape=input_shape)

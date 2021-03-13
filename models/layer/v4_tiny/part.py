@@ -270,7 +270,7 @@ class YolohardActiveLayer(tf.keras.layers.Layer):
         '''
         #    分类预测    Tensor(batch_size, H, W, num_anchors, num_classes)
         yolohard_cls = x[:, :,:, :, :self._num_classes]
-        yolohard_cls = tf.nn.sigmoid(yolohard_cls)
+        yolohard_cls = tf.nn.softmax(yolohard_cls)
         #    预测置信度    Tensor(batch_size, H, W, num_anchors, 1)
         yolohard_confidence = x[:, :,:, :, self._num_classes]
         yolohard_confidence = tf.expand_dims(yolohard_confidence, axis=-1)
