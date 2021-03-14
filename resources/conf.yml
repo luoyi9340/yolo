@@ -14,8 +14,8 @@ dataset:
    label_val: /Users/irenebritney/Desktop/vcode/dataset/num_letter/val.jsons
    label_val_mutiple: false
    #   测试集相关配置
-   in_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test
-   count_test: 100
+   in_test: temp/num_letter/test
+   count_test: 10
    label_test: /Users/irenebritney/Desktop/vcode/dataset/num_letter/test.jsons
    label_test_mutiple: false
    #   训练时批量大小
@@ -57,7 +57,7 @@ dataset_cells:
 v4: 
    #   训练相关配置
    learning_rate: 0.0001
-   save_weights_dir: /Users/irenebritney/Desktop/vcode/yolo/models
+   save_weights_dir: temp/models
    tensorboard_dir: logs/tensorboard
    #   loss相关配置
    loss_lamda_box: 1

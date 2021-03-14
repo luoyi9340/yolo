@@ -1,0 +1,65 @@
+dataset:
+  batch_size: 4
+  count_test: 100
+  count_train: 20000
+  count_val: 100
+  epochs: 20
+  in_test: /home/mist/dataset/num_letter/test
+  in_train: /home/mist/dataset/num_letter/train
+  in_val: /home/mist/dataset/num_letter/val
+  label_test: /home/mist/dataset/num_letter/test.jsons
+  label_test_mutiple: false
+  label_train: /home/mist/dataset/num_letter/train.jsons
+  label_train_mutiple: false
+  label_val: /home/mist/dataset/num_letter/val.jsons
+  label_val_mutiple: false
+  shuffle_buffer_rate: -1
+dataset_cells:
+  anchors_set:
+  - - - 81.54752427957331
+      - 56.43448495462505
+    - - 81.10758580905683
+      - 59.1673877511779
+    - - 81.3733002779656
+      - 59.538827536122994
+  - - - 81.15771939123192
+      - 63.73158173695768
+    - - 80.48762283866152
+      - 64.94895716714359
+    - - 81.273
+      - 66.70218333333332
+  - - - 81.86197916666667
+      - 68.10555555555555
+    - - 81.28434504792332
+      - 74.88210862619809
+    - - 82.79291824149593
+      - 80.07459717525364
+  batch_size: 4
+  count_test: 100
+  count_train: 20000
+  count_val: 100
+  epochs: 20
+  in_test: /home/mist/dataset/num_letter/test
+  in_train: /home/mist/dataset/num_letter/train
+  in_val: /home/mist/dataset/num_letter/val
+  label_test: /home/mist/dataset/num_letter/test_cells.jsons
+  label_test_mutiple: false
+  label_train: /home/mist/dataset/num_letter/train_cels.jsons
+  label_train_mutiple: false
+  label_val: /home/mist/dataset/num_letter/val_cells.jsons
+  label_val_mutiple: false
+  scales_set:
+  - 32
+  - 16
+  - 8
+  shuffle_buffer_rate: -1
+v4:
+  learning_rate: 0.0001
+  loss_lamda_box: 1
+  loss_lamda_cls: 1
+  loss_lamda_confidence: 1
+  loss_lamda_unconfidence: 0.5
+  max_objects: 6
+  save_weights_dir: temp/models
+  tensorboard_dir: logs/tensorboard
+  threshold_liable_iou: 0.5

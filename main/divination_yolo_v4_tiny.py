@@ -26,9 +26,11 @@ yolo_v4_tiny.show_info()
 
 #    加载要占卜的图片
 img_dir = conf.DATASET_CELLS.get_in_test()
-img_name = '132b58ba-4fe6-49a6-9170-7f199cbc6ad3.png'
+img_name = '8fc02c5a-e144-4650-bdee-b9e83ec8eb12.png'
 img_path = img_dir + '/' + img_name
 img, img_shape = ds.read_image_to_arr(img_path)
+#    有个bug，训练的时候归一化代码写错了，这里将错就错吧。。。
+#img_tf = ((tf.convert_to_tensor(img) / 255.) - 0.5) * 2.
 img_tf = ((tf.convert_to_tensor(img) - 255.) - 0.5) / 2.
 
 qualified_anchors = yolo_v4_tiny.divination(img_tf, yolohard_register=YoloHardRegister.instance(), img_shape=img_shape, threshold_liable_iou=conf.V4.get_threshold_liable_iou())
